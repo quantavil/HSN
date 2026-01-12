@@ -65,6 +65,10 @@ async def process_card(page, context, card_title, output_folder, force_update=Fa
             print(f"Card '{card_title}' not found on page. Skipping.")
             return
 
+        # Capture downloads
+        downloads = []
+        page.on("download", lambda d: downloads.append(d))
+
         await page.click(view_button_selector)
         # Wait for some indication of loading?
         await page.wait_for_timeout(2000) 
@@ -72,14 +76,133 @@ async def process_card(page, context, card_title, output_folder, force_update=Fa
         print(f"Could not find or click view button for {card_title}: {e}")
         return
 
-    # Wait for the table to load
-    # Note: Some pages might not use #itcdetails, but most 'digitised' ones seem to.
-    # If this times out, it might be a different structure.
+    # Wait for either table or PDF load
     try:
-        await page.wait_for_selector("#itcdetails", timeout=10000)
+        # We wait for either the table to appear OR the URL to change to a PDF
+        # But wait_for_selector is simplest; if it fails, we check URL.
+        await page.wait_for_selector("#itcdetails", timeout=5000)
     except Exception as e:
-        print(f"Table (#itcdetails) did not load for {card_title}: {e}")
-        # Could be a different page structure or empty results
+        print(f"Table (#itcdetails) did not load for {card_title}. Checking for download, direct PDF, or new tab...")
+        
+        # 0. Check for Downloads
+        if downloads:
+            print(f"Detected {len(downloads)} download event(s).")
+            for download in downloads:
+                filename = f"{card_title.replace(' ', '_')}.pdf"
+                if len(filename) > 240: filename = filename[:240] + ".pdf"
+                filepath = os.path.join(folder_path, filename)
+                
+                print(f"Saving download to {filepath}...")
+                await download.save_as(filepath)
+                print(f"Saved {filename}")
+            return
+
+        # DEBUG: Print current state
+        print(f"Current Page URL: {page.url}")
+        print(f"Total pages: {len(context.pages)}")
+        for i, p in enumerate(context.pages):
+            try:
+                print(f"Page {i} URL: {p.url}")
+            except:
+                print(f"Page {i} (closed/error)")
+
+        # 1. Check if CURRENT page is a PDF
+        if page.url.lower().endswith(".pdf") or "pdf" in page.url.lower() or "/website/" in page.url.lower():
+             print(f"Detected direct PDF on current page: {page.url}")
+             filename = f"{card_title.replace(' ', '_')}.pdf"
+             if len(filename) > 240: filename = filename[:240] + ".pdf"
+             filepath = os.path.join(folder_path, filename)
+
+             if os.path.exists(filepath) and not force_update:
+                 print(f"Skipping {filename} (already exists)")
+                 return
+
+             try:
+                 pdf_url = page.url
+                 print(f"Downloading {pdf_url} to {filename}...")
+                 # Fetch blob
+                 data_url = await page.evaluate(f"""
+                     async () => {{
+                         const response = await fetch('{pdf_url}');
+                         const blob = await response.blob();
+                         const reader = new FileReader();
+                         return new Promise((resolve) => {{
+                             reader.onloadend = () => resolve(reader.result);
+                             reader.readAsDataURL(blob);
+                         }});
+                     }}
+                 """)
+                 header, encoded = data_url.split(",", 1)
+                 data = base64.b64decode(encoded)
+                 with open(filepath, "wb") as f:
+                     f.write(data)
+                 print(f"Saved {filename}")
+                 
+                 # Go back to main page for next iteration if needed, though usually we process one card per call
+                 # But we must ensure state is clean if we were reusing page (which we are)
+                 # Wait, process_card is called iteratively. We need to go back? 
+                 # The caller 'process_card' starts with 'goto(BASE_URL)', so next call will reset.
+                 return 
+             except Exception as ex:
+                 print(f"Failed to download PDF from current page: {ex}")
+                 return
+
+        # 2. Check for NEW tab
+        pages = context.pages
+        # Filter for pages created after our main page (assuming main page is pages[0])
+        # But easier just to check count or check for other pages
+        for subpage in pages:
+            if subpage == page: continue
+            
+            try:
+                await subpage.wait_for_load_state("domcontentloaded", timeout=5000)
+            except:
+                pass
+                
+            print(f"Checking new tab: {subpage.url}")
+            if subpage.url.lower().endswith(".pdf") or "pdf" in subpage.url.lower() or "/website/" in subpage.url.lower():
+                print("Detected PDF in new tab.")
+                filename = f"{card_title.replace(' ', '_')}.pdf"
+                if len(filename) > 240: filename = filename[:240] + ".pdf"
+                filepath = os.path.join(folder_path, filename)
+                
+                if os.path.exists(filepath) and not force_update:
+                    print(f"Skipping {filename} (already exists)")
+                    await subpage.close()
+                    return
+
+                try:
+                    pdf_url = subpage.url
+                    print(f"Downloading {pdf_url} to {filename}...")
+                    
+                    data_url = await subpage.evaluate(f"""
+                        async () => {{
+                            const response = await fetch('{pdf_url}');
+                            const blob = await response.blob();
+                            const reader = new FileReader();
+                            return new Promise((resolve) => {{
+                                reader.onloadend = () => resolve(reader.result);
+                                reader.readAsDataURL(blob);
+                            }});
+                        }}
+                    """)
+                    header, encoded = data_url.split(",", 1)
+                    data = base64.b64decode(encoded)
+
+                    with open(filepath, "wb") as f:
+                        f.write(data)
+                    print(f"Saved {filename}")
+                    await subpage.close()
+                    return
+                except Exception as ex:
+                    print(f"Failed to download PDF from new tab: {ex}")
+                    await subpage.close()
+                    return
+            
+            # Close non-relevant tabs
+            # await subpage.close() 
+
+        print(f"Could not find table or PDF for {card_title}")
         return
 
     # Setup window.open interception for blob downloads
@@ -264,6 +387,7 @@ async def main():
     parser.add_argument("-c", "--chapter", help="Specific ID/S.No to download")
     parser.add_argument("-p", "--policy", choices=['import', 'export', 'all'], default='all', help="Policy type to download")
     parser.add_argument("--skip-extras", action="store_true", help="Skip downloading extra Appendices/Notifications")
+    parser.add_argument("-s", "--section", help="Filter by specific section name (substring match, case-insensitive). E.g., 'Pets', 'Appendix', 'Notification'")
     args = parser.parse_args()
 
     if not os.path.exists(DOWNLOAD_DIR):
@@ -274,25 +398,35 @@ async def main():
         context = await browser.new_context(accept_downloads=True)
         page = await context.new_page()
 
+        # Helper to check if we should process a card based on --section
+        def should_process(title):
+            if not args.section:
+                return True
+            return args.section.lower() in title.lower()
+
         # Import Policy
         if args.policy in ['import', 'all']:
             # Main Policy
-            await process_card(page, context, "ITC(HS) based Import Policy", "Import_Policy", args.force, args.chapter, link_selector="a.itchsimport")
+            if should_process("ITC(HS) based Import Policy"):
+                await process_card(page, context, "ITC(HS) based Import Policy", "Import_Policy", args.force, args.chapter, link_selector="a.itchsimport")
             
             # Extras
             if not args.skip_extras:
                 for item in IMPORT_EXTRA_ITEMS:
-                    await process_card(page, context, item, "Import_Policy_Extra", args.force, args.chapter)
+                    if should_process(item):
+                        await process_card(page, context, item, "Import_Policy_Extra", args.force, args.chapter)
         
         # Export Policy
         if args.policy in ['export', 'all']:
             # Main Policy
-            await process_card(page, context, "ITC(HS) based Export Policy", "Export_Policy", args.force, args.chapter, link_selector="a.itchsexport")
+            if should_process("ITC(HS) based Export Policy"):
+                await process_card(page, context, "ITC(HS) based Export Policy", "Export_Policy", args.force, args.chapter, link_selector="a.itchsexport")
             
             # Extras
             if not args.skip_extras:
                 for item in EXPORT_EXTRA_ITEMS:
-                    await process_card(page, context, item, "Export_Policy_Extra", args.force, args.chapter)
+                    if should_process(item):
+                        await process_card(page, context, item, "Export_Policy_Extra", args.force, args.chapter)
 
         await browser.close()
 
