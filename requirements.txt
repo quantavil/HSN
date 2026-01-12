@@ -1,0 +1,10 @@
+playwright
+fastapi
+uvicorn
+pypdf
+pdfplumber
+aiofiles
+rapidfuzz
+jinja2
+python-multipart
+websockets

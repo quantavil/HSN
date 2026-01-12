@@ -31,6 +31,46 @@ A robust Python utility to automate the extraction of Import and Export policy d
     playwright install chromium
     ```
 
+## Docker / Podman Support
+
+You can run the application in a container without manually installing Python dependencies.
+
+### 1. Install Docker or Podman
+
+**Linux (Ubuntu/Debian):**
+```bash
+# Docker
+sudo apt-get update
+sudo apt-get install -y docker.io
+
+# Podman
+sudo apt-get update
+sudo apt-get install -y podman
+```
+
+**Windows:**
+- **Docker:** Download [Docker Desktop](https://www.docker.com/products/docker-desktop/) or run `winget install Docker.DockerDesktop`
+- **Podman:** Run `winget install RedHat.Podman-Desktop`
+
+**macOS:**
+- **Docker:** Download [Docker Desktop](https://www.docker.com/products/docker-desktop/) or run `brew install --cask docker`
+- **Podman:** Run `brew install podman`
+
+### 2. Run with Docker
+
+Build and run the container:
+
+```bash
+# Build the image
+docker build -t dgft-extractor .
+
+# Run the container (maps port 8000 and the downloads directory)
+docker run -p 8000:8000 -v $(pwd)/downloads:/app/downloads dgft-extractor
+```
+
+(Replace `docker` with `podman` if using Podman)
+
+
 ## Usage
 
 ### 1. Extractor Script (Data Collection)
