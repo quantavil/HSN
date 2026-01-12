@@ -41,7 +41,7 @@ EXPORT_EXTRA_ITEMS = [
     "Previous Export Policy"
 ]
 
-async def process_card(page, context, card_title, output_folder, force_update=False, target_chapter=None, link_selector=None):
+async def process_card(page, context, card_title, output_folder, force_update=False, target_chapter=None, link_selector=None, container_selector=None):
     """
     Process a specific card (Policy section, Appendix, etc.) from the dashboard.
     """
@@ -58,7 +58,12 @@ async def process_card(page, context, card_title, output_folder, force_update=Fa
     try:
         # Use a more flexible xpath to find the View button associated with the card title
         # We look for h5 with text, then find the closest anchor tag (ancestor)
-        view_button_selector = f"xpath=//h5[contains(text(), '{card_title}')]/ancestor::a"
+        # Scoped selector if container provided
+        if container_selector:
+            # Look for h5/card within the specific container
+            view_button_selector = f"xpath={container_selector}//h5[contains(text(), '{card_title}')]/ancestor::a"
+        else:
+            view_button_selector = f"xpath=//h5[contains(text(), '{card_title}')]/ancestor::a"
         
         # Check if element exists before waiting too long
         if not await page.query_selector(view_button_selector):
@@ -387,6 +392,7 @@ async def main():
     parser.add_argument("-c", "--chapter", help="Specific ID/S.No to download")
     parser.add_argument("-p", "--policy", choices=['import', 'export', 'all'], default='all', help="Policy type to download")
     parser.add_argument("--skip-extras", action="store_true", help="Skip downloading extra Appendices/Notifications")
+    parser.add_argument("--only-extras", action="store_true", help="Download ONLY extra Appendices/Notifications (skips main policy)")
     parser.add_argument("-s", "--section", help="Filter by specific section name (substring match, case-insensitive). E.g., 'Pets', 'Appendix', 'Notification'")
     args = parser.parse_args()
 
@@ -404,29 +410,38 @@ async def main():
                 return True
             return args.section.lower() in title.lower()
 
+        # Check conflicting flags
+        if args.skip_extras and args.only_extras:
+            print("Error: Cannot use --skip-extras and --only-extras together.")
+            return
+
         # Import Policy
         if args.policy in ['import', 'all']:
+            import_container = '//h4[contains(., "Schedule 1 - Import Policy")]/ancestor::div[contains(@class, "bg-dark-gray")][1]'
+            
             # Main Policy
-            if should_process("ITC(HS) based Import Policy"):
-                await process_card(page, context, "ITC(HS) based Import Policy", "Import_Policy", args.force, args.chapter, link_selector="a.itchsimport")
+            if not args.only_extras and should_process("ITC(HS) based Import Policy"):
+                await process_card(page, context, "ITC(HS) based Import Policy", "Import_Policy", args.force, args.chapter, link_selector="a.itchsimport", container_selector=import_container)
             
             # Extras
             if not args.skip_extras:
                 for item in IMPORT_EXTRA_ITEMS:
                     if should_process(item):
-                        await process_card(page, context, item, "Import_Policy_Extra", args.force, args.chapter)
+                        await process_card(page, context, item, "Import_Policy_Extra", args.force, args.chapter, container_selector=import_container)
         
         # Export Policy
         if args.policy in ['export', 'all']:
+            export_container = '//h4[contains(., "Schedule 2 - Export Policy")]/ancestor::div[contains(@class, "bg-dark-gray")][1]'
+
             # Main Policy
-            if should_process("ITC(HS) based Export Policy"):
-                await process_card(page, context, "ITC(HS) based Export Policy", "Export_Policy", args.force, args.chapter, link_selector="a.itchsexport")
+            if not args.only_extras and should_process("ITC(HS) based Export Policy"):
+                await process_card(page, context, "ITC(HS) based Export Policy", "Export_Policy", args.force, args.chapter, link_selector="a.itchsexport", container_selector=export_container)
             
             # Extras
             if not args.skip_extras:
                 for item in EXPORT_EXTRA_ITEMS:
                     if should_process(item):
-                        await process_card(page, context, item, "Export_Policy_Extra", args.force, args.chapter)
+                        await process_card(page, context, item, "Export_Policy_Extra", args.force, args.chapter, container_selector=export_container)
 
         await browser.close()
 
