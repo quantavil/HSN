@@ -94,6 +94,7 @@ class SearchIndexer:
         Search for text content within PDFs.
         fuzzy_threshold: 0.0-1.0, minimum similarity score for matches (default 85%)
         """
+        import re
         from rapidfuzz import process, fuzz
         
         # Scope mapping
@@ -203,7 +204,6 @@ class SearchIndexer:
                             
                             # Highlight query terms
                             for term in effective_query_terms:
-                                import re
                                 snippet = re.sub(
                                     f'({re.escape(term)})',
                                     r'<b>\1</b>',
