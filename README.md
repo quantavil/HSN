@@ -10,6 +10,7 @@ A robust Python utility to automate the extraction of Import and Export policy d
     -   Handles browser download events and blob URLs seamlessly.
 -   **Scoped Processing**: accurately distinguishes between Import and Export sections to avoid duplicate or incorrect downloads for identically named items (e.g., "Notification").
 -   **Granular Control**: Filter by policy type, chapter, specific section name, or download only "extras".
+-   **Instant Content Search**: Full-text search across all downloaded PDFs using a local SQLite index.
 
 ## Prerequisites
 -   Python 3.7+
@@ -19,7 +20,7 @@ A robust Python utility to automate the extraction of Import and Export policy d
 
 1.  **Install dependencies**:
     ```bash
-    pip install playwright
+    pip install playwright fastapi uvicorn pypdf pdfplumber aiofiles
     ```
 
 2.  **Install browser binaries**:
@@ -29,58 +30,47 @@ A robust Python utility to automate the extraction of Import and Export policy d
 
 ## Usage
 
+### 1. Extractor Script (Data Collection)
 Run the script from the command line:
 
 ```bash
 python3 extract_dgft_pdfs.py [OPTIONS]
 ```
 
-### Common Commands
+**Options:**
+-   `--policy all` (Import + Export + Extras)
+-   `--policy import`, `--policy export`
+-   `--chapter "01"` (Specific Chapter)
+-   `--force` (Overwrite existing files)
 
-**1. Download Everything (Import + Export + All Extras)**
+### 2. Dashboard & Search (Viewer)
+Start the dashboard server to browse and search files:
+
 ```bash
-python3 extract_dgft_pdfs.py --policy all
+uvicorn dashboard.server:app --reload
 ```
 
-**2. Download Only Import Policy**
-```bash
-python3 extract_dgft_pdfs.py --policy import
-```
+Open your browser to `http://localhost:8000`.
 
-**3. Download Only "Extras" (Notifications, Appendices, Pets, etc.)**
-Skips the main policy chapters and only updates the supplementary documents.
-```bash
-python3 extract_dgft_pdfs.py --only-extras
-```
+## Content Search Architecture
 
-**4. Download a Specific Chapter**
-Downloads only Chapter 01 (Live Animals).
-```bash
-python3 extract_dgft_pdfs.py --chapter "01"
-```
+The dashboard includes a high-performance content search engine that allows you to instantly find text across hundreds of PDF files.
 
-**5. Filter by Section Name**
-Downloads only sections containing "Notification" in their title.
-```bash
-python3 extract_dgft_pdfs.py --section "Notification"
-```
+**How it works:**
+1.  **Indexing**: On startup, the server runs a background task using `dashboard/indexer.py`.
+    -   It iterates through all PDFs in the `downloads/` directory.
+    -   It extracts text content using **pdfplumber**, which provides reliable extraction even for complex layouts.
+    -   Text is stored in a local SQLite database (`dashboard/search_index.db`) using the **FTS5** (Full-Text Search) extension.
+    -   The indexer checks file modification times to avoid re-indexing unchanged files, making restarts fast.
 
-**6. Force Overwrite**
-Re-downloads files even if they already exist.
-```bash
-python3 extract_dgft_pdfs.py --force
-```
+2.  **Searching**:
+    -   When you perform a search in the UI, the query is sent to the `/api/search` endpoint.
+    -   The server queries the SQLite FTS index instead of opening PDF files.
+    -   This reduces search time from minutes (brute-force parsing) to milliseconds.
 
-## Options Reference
-
-| Flag | Description |
-| :--- | :--- |
-| `-p`, `--policy` | Policy type to download: `import`, `export`, or `all` (default: `all`). |
-| `-c`, `--chapter` | Filter by specific Chapter ID (e.g., "01", "85"). |
-| `-s`, `--section` | Filter by section title (substring match, case-insensitive). |
-| `-f`, `--force` | Force overwrite existing files. |
-| `--only-extras` | Download **only** supplementary items (Notifications, Appendices, etc.), skipping main chapters. |
-| `--skip-extras` | Skip downloading supplementary items. |
+3.  **Updates**:
+    -   The index is automatically updated when the server starts.
+    -   You can verify indexing progress in the dashboard console output.
 
 ## Output Structure
 
@@ -94,7 +84,7 @@ downloads/
 └── Export_Policy_Extra/    # Export Notifications, Appendices, etc.
 ```
 
-## How It Works
+## How It Works (Extractor)
 
 1.  **Headless Browser**: Uses Playwright (Chromium) to render the dynamic DGFT website.
 2.  **Scoped Interaction**: Identifies the "Import" and "Export" DOM containers specifically to ensure clicks are sent to the correct section.

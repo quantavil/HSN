@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DGFT Viewer</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap"
+        rel="stylesheet">
+
+    <!-- Tailwind -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <link rel="stylesheet" href="/static/styles.css">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Outfit', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
+                    colors: {
+                        brand: { 500: '#0ea5e9', 600: '#0284c7' },
+                        dark: { 800: '#1e1e2e', 900: '#11111b', 950: '#0d0d15' }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+
+<body class="bg-dark-950 text-white min-h-screen overflow-hidden flex" x-data="fileManager()">
+
+    <!-- Sidebar -->
+    <aside class="w-64 bg-dark-900 border-r border-white/5 flex flex-col z-20">
+        <div class="p-6">
+            <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-brand-500 to-purple-400">
+                DGFT Viewer</h1>
+        </div>
+
+        <nav class="flex-1 px-3 space-y-1 overflow-y-auto">
+            <template x-for="cat in categories" :key="cat.id">
+                <button @click="activeCategory = cat.id"
+                    :class="activeCategory === cat.id ? 'bg-brand-500/10 text-brand-500 border-brand-500/50' : 'text-gray-400 border-transparent hover:bg-white/5 hover:text-white'"
+                    class="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium border border-transparent transition-all">
+                    <span x-text="cat.name"></span>
+                    <span x-show="files[cat.dir]" class="text-xs opacity-50 bg-white/10 px-1.5 py-0.5 rounded"
+                        x-text="files[cat.dir]?.length || 0"></span>
+                </button>
+            </template>
+        </nav>
+
+        <div class="p-4 border-t border-white/5">
+            <div class="glass-panel p-4 rounded-xl space-y-3">
+                <button @click="showModal = true"
+                    class="w-full py-2 px-3 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 text-sm font-medium text-gray-300 transition-all flex items-center justify-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z">
+                        </path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                    </svg>
+                    Settings
+                </button>
+                <button @click="runJob('all', {}, 'Sync All')" :disabled="loading"
+                    class="w-full py-2.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-sm font-semibold shadow-lg shadow-brand-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+                    <svg x-show="!loading" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
+                        </path>
+                    </svg>
+                    <svg x-show="loading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                        </circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z">
+                        </path>
+                    </svg>
+                    Sync All
+                </button>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col min-w-0 bg-dark-950 relative">
+        <!-- Header -->
+        <header
+            class="px-8 py-5 flex items-center justify-between border-b border-white/5 bg-dark-950/50 backdrop-blur z-10 sticky top-0">
+            <h2 class="text-2xl font-semibold text-white"
+                x-text="searchMode === 'content' ? 'Search Results' : categories.find(c => c.id === activeCategory)?.name">
+            </h2>
+
+            <div class="flex items-center gap-4">
+                <!-- Search Mode Toggle -->
+                <div class="flex bg-dark-900 rounded-lg p-1 border border-white/10">
+                    <button @click="setSearchMode('filter')"
+                        :class="searchMode === 'filter' ? 'bg-brand-600 text-white shadow' : 'text-gray-400 hover:text-white'"
+                        class="px-3 py-1.5 rounded-md text-xs font-medium transition-all">
+                        Filter Name
+                    </button>
+                    <button @click="setSearchMode('content')"
+                        :class="searchMode === 'content' ? 'bg-brand-600 text-white shadow' : 'text-gray-400 hover:text-white'"
+                        class="px-3 py-1.5 rounded-md text-xs font-medium transition-all">
+                        Search Content
+                    </button>
+                </div>
+
+                <div class="relative w-80">
+                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none"
+                        stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                    <input x-model="search" @keydown.enter="performSearch()" type="text"
+                        :placeholder="searchMode === 'content' ? 'Type & Press Enter to search text...' : 'Filter files...'"
+                        class="w-full bg-dark-900 border border-white/10 rounded-full pl-10 pr-4 py-2 text-sm focus:outline-none focus:border-brand-500 transition-colors">
+
+                    <button x-show="searchMode === 'content' && search" @click="performSearch()"
+                        class="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full bg-white/10 hover:bg-white/20 text-gray-300">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Grid -->
+        <div class="flex-1 overflow-y-auto p-8 scrollbar-thin">
+
+            <!-- Standard File Grid -->
+            <div x-show="searchMode === 'filter'"
+                class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
+                <template x-for="file in filteredFiles" :key="file.path">
+                    <div
+                        class="group relative bg-dark-900 border border-white/5 rounded-xl p-4 hover:border-brand-500/30 hover:bg-dark-800 transition-all duration-300 flex flex-col">
+                        <div class="flex items-start justify-between mb-4">
+                            <div
+                                class="w-10 h-10 rounded-lg bg-brand-500/10 flex items-center justify-center text-brand-500">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z">
+                                    </path>
+                                </svg>
+                            </div>
+                            <button @click="updateFile(file.name)" title="Re-download"
+                                class="opacity-0 group-hover:opacity-100 p-2 rounded-lg bg-white/5 hover:bg-white/10 hover:text-brand-400 text-gray-400 transition-all">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
+                                    </path>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="flex-1 min-w-0 mb-4">
+                            <h3 class="text-sm font-medium text-gray-200 truncate" :title="file.name"
+                                x-text="file.name"></h3>
+                            <p class="text-xs text-gray-500 mt-1" x-text="formatSize(file.size)"></p>
+                        </div>
+                        <a :href="getFileUrl(file.path)" target="_blank"
+                            class="w-full py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-center text-gray-300 transition-colors">Open
+                            PDF</a>
+                    </div>
+                </template>
+            </div>
+
+            <!-- Search Results List -->
+            <div x-show="searchMode === 'content'" class="space-y-4">
+                <template x-for="result in searchResults" :key="result.path">
+                    <div
+                        class="bg-dark-900 border border-white/5 rounded-xl p-6 hover:border-brand-500/30 transition-all">
+                        <div class="flex items-start justify-between">
+                            <div class="flex items-center gap-3">
+                                <div
+                                    class="w-8 h-8 rounded bg-brand-500/10 flex items-center justify-center text-brand-500">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
+                                        </path>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h3 class="text-lg font-medium text-gray-200" x-text="result.name"></h3>
+                                    <a :href="getFileUrl(result.path)" target="_blank"
+                                        class="text-xs text-brand-400 hover:text-brand-300 hover:underline">Open
+                                        File</a>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 space-y-2 pl-11">
+                            <template x-for="match in result.matches">
+                                <div class="text-sm text-gray-400 bg-white/5 p-3 rounded-lg">
+                                    <span class="text-xs text-brand-500 font-mono mb-1 block"
+                                        x-text="'Page ' + match.page"></span>
+                                    <p class="font-mono text-xs opacity-80" x-text="match.snippet"></p>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+                <div x-show="searchResults.length === 0 && !isSearching" class="text-center text-gray-500 py-12">
+                    Enter a term above to search through PDF contents.
+                </div>
+                <div x-show="isSearching" class="text-center text-brand-500 py-12 flex flex-col items-center">
+                    <svg class="w-6 h-6 animate-spin mb-2" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                        </circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z">
+                        </path>
+                    </svg>
+                    Searching contents...
+                </div>
+            </div>
+
+            <!-- Empty State for Filter -->
+            <div x-show="searchMode === 'filter' && filteredFiles.length === 0"
+                class="h-64 flex flex-col items-center justify-center text-gray-500">
+                <p>No files found.</p>
+                <div x-show="loading" class="mt-2 text-sm text-brand-500">Syncing...</div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Console Drawer -->
+    <div class="fixed bottom-0 left-64 right-0 z-30 transition-transform duration-300 transform"
+        :class="consoleOpen ? 'translate-y-0' : 'translate-y-full'">
+
+        <!-- Tab Helper -->
+        <button @click="consoleOpen = !consoleOpen"
+            class="absolute -top-10 right-8 px-4 py-2 rounded-t-lg bg-dark-900 border-t border-x border-white/10 text-xs font-mono text-gray-400 hover:text-white flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full" :class="loading ? 'bg-green-500 animate-pulse' : 'bg-gray-500'"></span>
+            Console Output
+        </button>
+
+        <div class="bg-dark-900 border-t border-white/10 h-64 flex flex-col shadow-[0_-20px_40px_rgba(0,0,0,0.5)]">
+            <div class="flex items-center justify-between px-4 py-2 bg-dark-950 border-b border-white/5">
+                <span class="text-xs font-mono text-gray-400">root@dgft-extractor:~ <span
+                        x-text="lastCommand"></span></span>
+                <button @click="logs = []" class="text-xs text-gray-500 hover:text-white">Clear</button>
+            </div>
+            <div id="terminal" class="flex-1 p-4 font-mono text-xs overflow-y-auto scrollbar-thin">
+                <template x-for="log in logs">
+                    <div class="mb-0.5 break-words">
+                        <span class="text-gray-600 mr-2" x-text="log.time"></span>
+                        <span :class="{
+                            'text-brand-400': log.msg.startsWith('>'),
+                            'text-green-400': log.msg.includes('Saved'),
+                            'text-yellow-400': log.msg.includes('Processing'),
+                            'text-red-400': log.msg.includes('Error'),
+                            'text-gray-300': !log.msg.startsWith('>')
+                        }" x-text="log.msg"></span>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div x-show="showModal" style="display: none;"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+        x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150"
+        x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0">
+
+        <div class="bg-dark-900 border border-white/10 rounded-xl p-6 w-full max-w-md shadow-2xl transform transition-all"
+            @click.away="showModal = false">
+            <h3 class="text-lg font-semibold mb-4">Run Configuration</h3>
+
+            <div class="space-y-4">
+                <div class="space-y-2">
+                    <label class="text-xs uppercase text-gray-500 font-bold">Manual Chapter/Section</label>
+                    <input x-model="config.chapter" type="text" placeholder="e.g. 85"
+                        class="w-full bg-dark-800 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-brand-500 outline-none">
+                </div>
+
+                <div class="space-y-2">
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" x-model="config.force"
+                            class="rounded bg-dark-800 border-white/10 text-brand-500">
+                        <span class="text-sm">Force Re-download</span>
+                    </label>
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" x-model="config.skip_extras"
+                            class="rounded bg-dark-800 border-white/10 text-brand-500">
+                        <span class="text-sm">Skip Appendices</span>
+                    </label>
+                </div>
+
+                <div class="flex gap-3 pt-4 border-t border-white/5">
+                    <button @click="showModal = false"
+                        class="flex-1 py-2 rounded-lg border border-white/10 hover:bg-white/5 text-sm transition-colors">Cancel</button>
+                    <button @click="showModal = false; runJob('all', {}, 'Manual Run')"
+                        class="flex-1 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-sm font-semibold transition-colors">Run
+                        Custom</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function fileManager() {
+            return {
+                showModal: false,
+                consoleOpen: false,
+                loading: false,
+                lastCommand: '',
+                search: '',
+                files: {},
+                logs: [],
+
+                // New Search State
+                searchMode: 'filter', // 'filter' or 'content'
+                searchResults: [],
+                isSearching: false,
+
+                categories: [
+                    { id: 'all', name: 'All Files', dir: 'all' }, // Helper
+                    { id: 'import', name: 'Import Policy', dir: 'Import_Policy' },
+                    { id: 'export', name: 'Export Policy', dir: 'Export_Policy' },
+                    { id: 'import_extra', name: 'Import Appendices', dir: 'Import_Policy_Extra' },
+                    { id: 'export_extra', name: 'Export Appendices', dir: 'Export_Policy_Extra' }
+                ],
+                activeCategory: 'import',
+
+                config: {
+                    chapter: '',
+                    force: false,
+                    skip_extras: false,
+                    only_extras: false
+                },
+
+                setSearchMode(mode) {
+                    this.searchMode = mode;
+                    this.search = '';
+                    this.searchResults = [];
+                },
+
+                async performSearch() {
+                    if (this.searchMode !== 'content' || !this.search.trim()) return;
+
+                    this.isSearching = true;
+                    this.searchResults = [];
+
+                    try {
+                        // Use absolute URL to support 5500 port usage if needed, assuming localhost:8000 is backend
+                        // But wait, if they are on 5500, they need to fetch from 8000.
+                        let url = '/api/search';
+                        if (window.location.port !== '8000') {
+                            url = 'http://localhost:8000/api/search';
+                        }
+
+                        const res = await fetch(url, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                query: this.search,
+                                scope: 'all' // Future: can bind to activeCategory
+                            })
+                        });
+                        this.searchResults = await res.json();
+                    } catch (e) {
+                        // Only alert if we really can't connect
+                        alert("Could not connect to the Backend Server.\n\nPlease ensuring the following:\n1. Open a terminal.\n2. Run: uvicorn dashboard.server:app --reload\n3. Keep that terminal open.");
+                    } finally {
+                        this.isSearching = false;
+                    }
+                },
+
+                get filteredFiles() {
+                    let list = [];
+                    const catInfo = this.categories.find(c => c.id === this.activeCategory);
+
+                    if (this.activeCategory === 'all') {
+                        // Gather all
+                        Object.values(this.files).forEach(files => list = list.concat(files));
+                    } else if (catInfo && this.files[catInfo.dir]) {
+                        list = this.files[catInfo.dir];
+                    }
+
+                    if (this.search && this.searchMode === 'filter') {
+                        const q = this.search.toLowerCase();
+                        list = list.filter(f => f.name.toLowerCase().includes(q));
+                    }
+                    return list;
+                },
+
+                async init() {
+                    this.initWebSocket();
+                    await this.refreshFiles();
+                },
+
+                formatSize(bytes) {
+                    if (bytes === 0) return '0 B';
+                    const k = 1024;
+                    const sizes = ['B', 'KB', 'MB', 'GB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+                },
+
+                async refreshFiles() {
+                    try {
+                        let url = '/api/files';
+                        // Handle Cross-Port dev
+                        if (window.location.port !== '8000') {
+                            url = 'http://localhost:8000/api/files';
+                        }
+
+                        const res = await fetch(url);
+                        this.files = await res.json();
+                    } catch (e) {
+                        console.error(e);
+                        // Show friendly error
+                        if (Object.keys(this.files).length === 0) {
+                            alert("Connection Error:\nCould not reach the Backend Server on http://localhost:8000.\n\nPlease run: uvicorn dashboard.server:app --reload");
+                        }
+                    }
+                },
+
+                initWebSocket() {
+                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    let host = window.location.host;
+
+                    // Cross-port dev support
+                    if (window.location.port !== '8000') {
+                        host = 'localhost:8000';
+                    }
+
+                    const ws = new WebSocket(`${protocol}//${host}/ws/logs`);
+
+                    ws.onmessage = (event) => {
+                        const now = new Date();
+                        const time = `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+                        this.logs.push({ time: `[${time}]`, msg: event.data });
+
+                        this.$nextTick(() => {
+                            const t = document.getElementById('terminal');
+                            if (t) t.scrollTop = t.scrollHeight;
+                        });
+
+                        if (event.data.includes("Process finished")) {
+                            this.loading = false;
+                            this.refreshFiles(); // Refresh list after job
+                        }
+                    };
+                },
+
+                async runJob(action, overrides = {}, label = '') {
+                    this.loading = true;
+                    this.consoleOpen = true;
+                    this.lastCommand = label || `Running ${action}...`;
+
+                    try {
+                        let url = '/run';
+                        if (window.location.port !== '8000') url = 'http://localhost:8000/run';
+
+                        await fetch(url, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                action: action,
+                                ...this.config,
+                                ...overrides
+                            })
+                        });
+                    } catch (e) {
+                        alert(e);
+                        this.loading = false;
+                    }
+                },
+
+                getFileUrl(path) {
+                    if (window.location.port !== '8000') {
+                        return 'http://localhost:8000' + path;
+                    }
+                    return path;
+                },
+
+                updateFile(filename) {
+                    // Heuristic to extract chapter or section from filename
+                    // Filename format: {prefix}_{chapter}_{desc}.pdf or similar
+                    // E.g. 85_Electrical.pdf -> 85
+
+                    let target = '';
+
+                    // Try to match chapter number at start
+                    const chapterMatch = filename.match(/^(\d+)/);
+                    if (chapterMatch) {
+                        target = chapterMatch[1];
+                        this.runJob('single', { chapter: target, force: true }, `Update Ch ${target}`);
+                        return;
+                    }
+
+                    // Special Appendices handling?
+                    // Usually appendix names are just the name. 
+                    // Pass filename without ext as 'section' filter
+                    const name = filename.replace('.pdf', '');
+                    this.runJob('single', { section: name, force: true }, `Update ${name}`);
+                }
+            }
+        }
+    </script>
+</body>
+
+</html>
