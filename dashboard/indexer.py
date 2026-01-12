@@ -94,8 +94,6 @@ class SearchIndexer:
         Search for text content within PDFs.
         fuzzy_threshold: 0.0-1.0, minimum similarity score for matches (default 85%)
         """
-        from difflib import SequenceMatcher
-        import rapidfuzz
         from rapidfuzz import process, fuzz
         
         # Scope mapping
@@ -124,24 +122,22 @@ class SearchIndexer:
                 expanded_terms = []
                 effective_query_terms = set(search_terms)
                 
+                # Convert threshold to 0-100 scale for rapidfuzz
+                score_cutoff = fuzzy_threshold * 100
+                
                 for term in search_terms:
                     # Always include the original term
                     term_alternatives = [f'"{term}"*']
                     
-                    # Check if we should find a correction
-                    # (Simple heuristic: if term not in vocab, try to find closest match)
-                    # We can also always try to find similar words if we want to catch "metla" -> "metal"
-                    # even if "metla" exists (but usually we only correct if no exact match or always?)
-                    # User wants "metla" -> "metal", "metla" likely doesn't exist.
-                    
-                    # Find closest match in vocabulary
-                    # score_cutoff=80 allows for some deviation
-                    match = process.extractOne(term, vocab_list, scorer=fuzz.ratio, score_cutoff=70)
-                    if match:
-                        corrected_term, score, _ = match
-                        if corrected_term != term:
-                            term_alternatives.append(f'"{corrected_term}"*')
-                            effective_query_terms.add(corrected_term)
+                    # Only look for fuzzy matches if threshold allows it (strictly less than 1.0)
+                    if fuzzy_threshold < 1.0:
+                        # Find closest match in vocabulary
+                        match = process.extractOne(term, vocab_list, scorer=fuzz.ratio, score_cutoff=score_cutoff)
+                        if match:
+                            corrected_term, score, _ = match
+                            if corrected_term != term:
+                                term_alternatives.append(f'"{corrected_term}"*')
+                                effective_query_terms.add(corrected_term)
                     
                     expanded_terms.append(" OR ".join(term_alternatives))
 
@@ -189,7 +185,9 @@ class SearchIndexer:
                         window = " ".join(words[i:i + window_size])
                         
                         # Calculate similarity
-                        score = SequenceMatcher(None, query_lower, window[:len(query_lower) * 2]).ratio()
+                        # Calculate similarity using RapidFuzz which is faster
+                        # fuzz.ratio returns 0-100, so divide by 100.0
+                        score = fuzz.ratio(query_lower, window[:len(query_lower) * 2]) / 100.0
                         
                         # Also check if query terms appear in window
                         term_matches = sum(1 for term in query_words if term in window) / len(query_words)
