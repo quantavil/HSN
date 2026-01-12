@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.git/
+.gitignore
+downloads/
+dashboard/search_index.db
+server.log
+README.md
+LICENSE
+Dockerfile
+requirements.txt
+walkthrough.md
+task.md
+implementation_plan.md
