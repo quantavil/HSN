@@ -101,7 +101,7 @@ class SearchIndexer:
                 FROM pdf_fts 
                 WHERE pdf_fts MATCH ? 
                 ORDER BY rank 
-                LIMIT 50
+                LIMIT 100
             """, (query,))
             
             results = []
