@@ -57,7 +57,7 @@
             <template x-for="cat in categories" :key="cat.id">
                 <div class="group">
                     <div class="nb-nav-item" :class="activeCategory === cat.id ? 'active' : ''"
-                        @click="activeCategory = cat.id; if(searchMode === 'content') setSearchMode('filter')">
+                        @click="activeCategory = cat.id">
                         <span class="flex-1 truncate" x-text="cat.name"></span>
                         <span x-show="getCount(cat) > 0" class="nb-badge ml-2" x-text="getCount(cat)"></span>
                         <!-- Sync Icon -->
@@ -424,7 +424,6 @@
 
                 setSearchMode(mode) {
                     this.searchMode = mode;
-                    this.search = '';
                     this.searchResults = [];
                 },
 
@@ -476,30 +475,23 @@
                 },
 
                 fuzzyMatch(text, query) {
-                    // Levenshtein distance-based similarity scoring
-                    const levenshtein = (a, b) => {
-                        if (a.length === 0) return b.length;
-                        if (b.length === 0) return a.length;
-                        const matrix = [];
-                        for (let i = 0; i <= b.length; i++) matrix[i] = [i];
-                        for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
-                        for (let i = 1; i <= b.length; i++) {
-                            for (let j = 1; j <= a.length; j++) {
-                                const cost = a[j - 1] === b[i - 1] ? 0 : 1;
-                                matrix[i][j] = Math.min(
-                                    matrix[i - 1][j] + 1,
-                                    matrix[i][j - 1] + 1,
-                                    matrix[i - 1][j - 1] + cost
-                                );
-                            }
+                    // Simple fuzzy:
+                    // If Threshold > 90% -> Strict inclusion
+                    // If Threshold <= 90% -> Subsequence match
+
+                    if (this.fuzzyThreshold > 90) {
+                        return text.includes(query);
+                    }
+
+                    // Subsequence match (characters must appear in order)
+                    let i = 0, j = 0;
+                    while (i < text.length && j < query.length) {
+                        if (text[i] === query[j]) {
+                            j++;
                         }
-                        return matrix[b.length][a.length];
-                    };
-                    const maxLen = Math.max(text.length, query.length);
-                    if (maxLen === 0) return true;
-                    const distance = levenshtein(text, query);
-                    const similarity = ((maxLen - distance) / maxLen) * 100;
-                    return similarity >= this.fuzzyThreshold;
+                        i++;
+                    }
+                    return j === query.length;
                 },
 
                 async init() {

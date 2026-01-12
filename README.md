@@ -8,9 +8,12 @@ A robust Python utility to automate the extraction of Import and Export policy d
     -   Extracts chapter PDFs from dynamic data tables.
     -   Automatically detects and downloads direct PDF links for "Extras" (Notifications, Appendices).
     -   Handles browser download events and blob URLs seamlessly.
--   **Scoped Processing**: accurately distinguishes between Import and Export sections to avoid duplicate or incorrect downloads for identically named items (e.g., "Notification").
+-   **Scoped Processing**: Accurately distinguishes between Import and Export sections (e.g., handles "Notification" in both categories separately).
 -   **Granular Control**: Filter by policy type, chapter, specific section name, or download only "extras".
--   **Instant Content Search**: Full-text search across all downloaded PDFs using a local SQLite index.
+-   **Advanced Search**:
+    -   **Content Search**: Full-text search across all downloaded PDFs using a local SQLite FTS5 index, enhanced with **RapidFuzz** for semantic term expansion.
+    -   **Smart Filtering**: Real-time fuzzy filtering of filenames using a custom subsequence matching algorithm, allowing you to find files even with partial or spaced-out matches.
+    -   **Adjustable Sensitivity**: Control fuzzy match strictness via the UI settings (Strict inclusion vs. Loose subsequence matching).
 
 ## Prerequisites
 -   Python 3.7+
@@ -20,7 +23,7 @@ A robust Python utility to automate the extraction of Import and Export policy d
 
 1.  **Install dependencies**:
     ```bash
-    pip install playwright fastapi uvicorn pypdf pdfplumber aiofiles
+    pip install playwright fastapi uvicorn pypdf pdfplumber aiofiles rapidfuzz
     ```
 
 2.  **Install browser binaries**:
@@ -52,25 +55,19 @@ uvicorn dashboard.server:app --reload
 
 Open your browser to `http://localhost:8000`.
 
-## Content Search Architecture
+## Architecture
 
-The dashboard includes a high-performance content search engine that allows you to instantly find text across hundreds of PDF files.
+### Content Search (Backend)
+The dashboard uses a high-performance content search engine:
+1.  **Indexing**: `dashboard/indexer.py` extracts text from PDFs using `pdfplumber` and stores it in a SQLite FTS5 database.
+2.  **Searching**: Queries are executed against the FTS index.
+3.  **Fuzzy Logic**: The backend uses **RapidFuzz** to find corrections for search terms in the index vocabulary, expanding the query to find relevant sections even with slight mismatches.
 
-**How it works:**
-1.  **Indexing**: On startup, the server runs a background task using `dashboard/indexer.py`.
-    -   It iterates through all PDFs in the `downloads/` directory.
-    -   It extracts text content using **pdfplumber**, which provides reliable extraction even for complex layouts.
-    -   Text is stored in a local SQLite database (`dashboard/search_index.db`) using the **FTS5** (Full-Text Search) extension.
-    -   The indexer checks file modification times to avoid re-indexing unchanged files, making restarts fast.
-
-2.  **Searching**:
-    -   When you perform a search in the UI, the query is sent to the `/api/search` endpoint.
-    -   The server queries the SQLite FTS index instead of opening PDF files.
-    -   This reduces search time from minutes (brute-force parsing) to milliseconds.
-
-3.  **Updates**:
-    -   The index is automatically updated when the server starts.
-    -   You can verify indexing progress in the dashboard console output.
+### File Filtering (Frontend)
+The dashboard UI includes a custom fuzzy filter:
+-   **Strict Mode**: Uses standard substring matching (`.includes()`).
+-   **Loose Mode**: Uses subsequence matching (characters must appear in order, but can be spaced out), enabled when "Fuzzy Sensitivity" is < 90%.
+-   **No Dependencies**: Lightweight implementation without external libraries.
 
 ## Output Structure
 
