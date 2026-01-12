@@ -35,7 +35,6 @@ IMPORT_EXTRA_ITEMS = [
     "Appendix-5",
     "Restricted Item Details",
     "Prohibited Item Details",
-    # "FAQs on Restricted Items" has been removed as requested
     "Import of Pets",
     "STE Item Details"
 ]
@@ -45,7 +44,7 @@ EXPORT_EXTRA_ITEMS = [
     "How to Read Export Policy",
     "General Notes to Export Policy", 
     "Appendix-1",
-    "Appendix-2",
+    "Appendix-2", 
     "Appendix-3",
     "Appendix-4",
     "Restricted Item Details",
@@ -57,6 +56,7 @@ EXPORT_EXTRA_ITEMS = [
 # ============ HELPER FUNCTIONS ============
 def sanitize_filename(text: str, max_length: int = 80) -> str:
     """Sanitize text for use in filename."""
+    if not text: return "unnamed"
     safe = re.sub(r'[^\w\s-]', '', text)
     safe = re.sub(r'[\s_]+', '_', safe)  # Collapse multiple spaces/underscores
     safe = safe.strip('_')
@@ -100,8 +100,8 @@ async def cleanup_extra_pages(context, main_page):
         if pg != main_page:
             try:
                 await pg.close()
-            except:
-                pass
+            except Exception as e:
+                print(f"Error closing page: {e}")
 
 async def process_card(page, context, card_title, output_folder, force_update=False, target_chapter=None, link_selector=None, container_selector=None):
     """
@@ -110,13 +110,17 @@ async def process_card(page, context, card_title, output_folder, force_update=Fa
     print(f"\n--- Starting {card_title} ({output_folder}) ---")
     folder_path = os.path.join(CONFIG.DOWNLOAD_DIR, output_folder)
     if not os.path.exists(folder_path):
-        os.makedirs(folder_path)
+        os.makedirs(folder_path, exist_ok=True)
 
     print(f"Navigating to {CONFIG.BASE_URL}...")
-    await page.goto(CONFIG.BASE_URL)
-    await page.wait_for_load_state("networkidle")
+    try:
+        await page.goto(CONFIG.BASE_URL)
+        await page.wait_for_load_state("networkidle")
+    except Exception as e:
+        print(f"Navigation failed: {e}")
+        return
 
-    # Capture downloads - FIX: memory leak by using local handler and removing it later
+    # Capture downloads
     downloads = []
     def handle_download(d):
         downloads.append(d)
@@ -132,10 +136,6 @@ async def process_card(page, context, card_title, output_folder, force_update=Fa
             
             if not await page.query_selector(view_button_selector):
                 print(f"Card '{card_title}' not found on page. Skipping.")
-                # Debug dump
-                print("Available titles on page:")
-                titles = await page.evaluate("() => Array.from(document.querySelectorAll('h5')).map(el => el.innerText.trim())")
-                print(titles)
                 return
 
             await page.click(view_button_selector)
@@ -154,18 +154,21 @@ async def process_card(page, context, card_title, output_folder, force_update=Fa
             if downloads:
                 print(f"Detected {len(downloads)} download event(s).")
                 for download in downloads:
-                    filename = sanitize_filename(card_title) + ".pdf"
-                    if len(filename) > CONFIG.MAX_FILENAME_LENGTH: 
-                         filename = filename[:CONFIG.MAX_FILENAME_LENGTH] + ".pdf"
-                    filepath = os.path.join(folder_path, filename)
-                    
-                    if os.path.exists(filepath) and not force_update:
-                         print(f"Skipping {filename} (already exists)")
-                         continue
-                    
-                    print(f"Saving download to {filepath}...")
-                    await download.save_as(filepath)
-                    print(f"Saved {filename}")
+                    try:
+                        filename = sanitize_filename(card_title) + ".pdf"
+                        if len(filename) > CONFIG.MAX_FILENAME_LENGTH: 
+                             filename = filename[:CONFIG.MAX_FILENAME_LENGTH] + ".pdf"
+                        filepath = os.path.join(folder_path, filename)
+                        
+                        if os.path.exists(filepath) and not force_update:
+                             print(f"Skipping {filename} (already exists)")
+                             continue
+                        
+                        print(f"Saving download to {filepath}...")
+                        await download.save_as(filepath)
+                        print(f"Saved {filename}")
+                    except Exception as e:
+                        print(f"Download save failed: {e}")
                 return
 
             # 1. Check if CURRENT page is a PDF
@@ -183,14 +186,13 @@ async def process_card(page, context, card_title, output_folder, force_update=Fa
                  return
 
             # 2. Check for NEW tab
-            # FIX: Resource Leak - Unclosed Pages via cleanup in finally (and here locally)
             found_in_tab = False
             for subpage in context.pages:
                 if subpage == page: continue
                 
                 try:
                     await subpage.wait_for_load_state("domcontentloaded", timeout=CONFIG.TIMEOUTS["page_load"])
-                except:
+                except Exception:
                     pass
                     
                 print(f"Checking new tab: {subpage.url}")
@@ -240,6 +242,7 @@ async def process_card(page, context, card_title, output_folder, force_update=Fa
 
             row_count = len(rows)
             for i in range(row_count):
+                # Re-query rows to avoid stale element reference
                 rows = await page.query_selector_all("#itcdetails tbody tr")
                 if i >= len(rows): break
                 row = rows[i]
@@ -280,23 +283,17 @@ async def process_card(page, context, card_title, output_folder, force_update=Fa
                         try:
                             last_col = cols[-1]
                             pdf_link = await last_col.query_selector("a")
-                        except:
+                        except Exception:
                             pass
 
-                # FIX: ElementHandle Type Mismatch
                 if pdf_link:
                     try:
-                        # Check if it's an element handle before eval
-                        # The user code suggestion was to check if we got an ElementHandle, 
-                        # but playwright python returns ElementHandle by default for query_selector.
-                        # The issue was evaluate_handle returning JSHandle.
                         tag_name = await pdf_link.evaluate("el => el.tagName")
                         if tag_name == "I":
                             parent_handle = await pdf_link.evaluate_handle("el => el.closest('a')")
                             if parent_handle:
                                 pdf_link = parent_handle.as_element() 
                     except Exception as e:
-                        # print(f"Error checking link parent: {e}")
                         pass
                 
                 if pdf_link:
@@ -346,7 +343,7 @@ async def process_card(page, context, card_title, output_folder, force_update=Fa
                         await next_button.click()
                         page_num += 1
                         should_continue = True
-                except:
+                except Exception:
                     pass
             
             if not should_continue:
@@ -359,7 +356,7 @@ async def process_card(page, context, card_title, output_folder, force_update=Fa
         # Removal of event listener
         try:
             page.remove_listener("download", handle_download)
-        except:
+        except Exception:
             pass
         # Final cleanup of pages
         await cleanup_extra_pages(context, page)
@@ -375,7 +372,7 @@ async def main():
     args = parser.parse_args()
 
     if not os.path.exists(CONFIG.DOWNLOAD_DIR):
-        os.makedirs(CONFIG.DOWNLOAD_DIR)
+        os.makedirs(CONFIG.DOWNLOAD_DIR, exist_ok=True)
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -393,7 +390,6 @@ async def main():
 
         # Import Policy
         if args.policy in ['import', 'all']:
-            # Using specific container for scoping
             import_container = '//h4[contains(normalize-space(.), "Schedule 1 - Import Policy")]/ancestor::div[contains(@class, "bg-dark-gray")][1]'
             
             if not args.only_extras and should_process("ITC(HS) based Import Policy"):

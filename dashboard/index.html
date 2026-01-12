@@ -133,8 +133,9 @@
         <div class="flex-1 overflow-y-auto p-8 scrollbar-thin">
 
             <!-- Standard File Grid -->
-            <div x-show="searchMode === 'filter'"
+            <div x-show="searchMode === 'filter'" x-transition.opacity
                 class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
+
                 <template x-for="file in filteredFiles" :key="file.path">
                     <div
                         class="group relative bg-dark-900 border border-white/5 rounded-xl p-4 hover:border-brand-500/30 hover:bg-dark-800 transition-all duration-300 flex flex-col">
@@ -168,6 +169,18 @@
                 </template>
             </div>
 
+            <!-- Loading State for Initial Load or Search -->
+            <div x-show="initialLoading"
+                class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
+                <template x-for="i in 5">
+                    <div class="bg-dark-900 border border-white/5 rounded-xl p-4 animate-pulse h-40">
+                        <div class="w-10 h-10 bg-white/10 rounded-lg mb-4"></div>
+                        <div class="h-4 bg-white/10 rounded w-3/4 mb-2"></div>
+                        <div class="h-3 bg-white/10 rounded w-1/2"></div>
+                    </div>
+                </template>
+            </div>
+
             <!-- Search Results List -->
             <div x-show="searchMode === 'content'" class="space-y-4">
                 <template x-for="result in searchResults" :key="result.path">
@@ -195,9 +208,8 @@
                         <div class="mt-4 space-y-2 pl-11">
                             <template x-for="match in result.matches">
                                 <div class="text-sm text-gray-400 bg-white/5 p-3 rounded-lg">
-                                    <span class="text-xs text-brand-500 font-mono mb-1 block"
-                                        x-text="'Page ' + match.page"></span>
-                                    <p class="font-mono text-xs opacity-80" x-text="match.snippet"></p>
+                                    <!-- Safe because snippet uses FTS5 escaping, only <b> tags are injected -->
+                                    <p class="font-mono text-xs opacity-80" x-html="match.snippet"></p>
                                 </div>
                             </template>
                         </div>
@@ -218,7 +230,7 @@
             </div>
 
             <!-- Empty State for Filter -->
-            <div x-show="searchMode === 'filter' && filteredFiles.length === 0"
+            <div x-show="searchMode === 'filter' && filteredFiles.length === 0 && !initialLoading"
                 class="h-64 flex flex-col items-center justify-center text-gray-500">
                 <p>No files found.</p>
                 <div x-show="loading" class="mt-2 text-sm text-brand-500">Syncing...</div>
@@ -233,8 +245,9 @@
         <!-- Tab Helper -->
         <button @click="consoleOpen = !consoleOpen"
             class="absolute -top-10 right-8 px-4 py-2 rounded-t-lg bg-dark-900 border-t border-x border-white/10 text-xs font-mono text-gray-400 hover:text-white flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full" :class="loading ? 'bg-green-500 animate-pulse' : 'bg-gray-500'"></span>
-            Console Output
+            <span class="w-2 h-2 rounded-full"
+                :class="wsConnected ? (loading ? 'bg-green-500 animate-pulse' : 'bg-green-500') : 'bg-red-500'"></span>
+            Console <span x-show="!wsConnected">(Disconnected)</span>
         </button>
 
         <div class="bg-dark-900 border-t border-white/10 h-64 flex flex-col shadow-[0_-20px_40px_rgba(0,0,0,0.5)]">
@@ -260,11 +273,14 @@
                             'text-brand-400': log.msg.startsWith('>'),
                             'text-green-400': log.msg.includes('Saved'),
                             'text-yellow-400': log.msg.includes('Processing'),
-                            'text-red-400': log.msg.includes('Error'),
+                            'text-red-400': log.msg.includes('Error') || log.msg.includes('failed'),
                             'text-gray-300': !log.msg.startsWith('>')
                         }" x-text="log.msg"></span>
                     </div>
                 </template>
+                <div x-show="!wsConnected" class="text-red-500 mt-2 italic">
+                    Connection lost. Reconnecting...
+                </div>
             </div>
         </div>
     </div>
@@ -351,10 +367,13 @@
                 showModal: false,
                 consoleOpen: false,
                 loading: false,
+                initialLoading: true,
                 lastCommand: '',
                 search: '',
                 files: {},
                 logs: [],
+                wsConnected: false,
+                wsReconnectAttempts: 0,
 
                 // New Search State
                 searchMode: 'filter', // 'filter' or 'content'
@@ -362,7 +381,7 @@
                 isSearching: false,
 
                 categories: [
-                    { id: 'all', name: 'All Files', dir: 'all' }, // Helper
+                    { id: 'all', name: 'All Files', dir: 'all' },
                     { id: 'import', name: 'Import Policy', dir: 'Import_Policy' },
                     { id: 'export', name: 'Export Policy', dir: 'Export_Policy' },
                     { id: 'import_extra', name: 'Import Appendices', dir: 'Import_Policy_Extra' },
@@ -375,6 +394,16 @@
                     force: false,
                     skip_extras: false,
                     only_extras: false
+                },
+
+                // API Helper to abstract URL construction
+                api(endpoint) {
+                    // If we are serving from port 5500 (Live Server), assume backend is 8000
+                    // If we are served from backend (8000), use relative path
+                    if (window.location.port !== '8000' && window.location.hostname === 'localhost') {
+                        return `http://localhost:8000${endpoint}`;
+                    }
+                    return endpoint;
                 },
 
                 setSearchMode(mode) {
@@ -390,25 +419,18 @@
                     this.searchResults = [];
 
                     try {
-                        // Use absolute URL to support 5500 port usage if needed, assuming localhost:8000 is backend
-                        // But wait, if they are on 5500, they need to fetch from 8000.
-                        let url = '/api/search';
-                        if (window.location.port !== '8000') {
-                            url = 'http://localhost:8000/api/search';
-                        }
-
-                        const res = await fetch(url, {
+                        const res = await fetch(this.api('/api/search'), {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                                 query: this.search,
-                                scope: this.activeCategory // Bind to activeCategory
+                                scope: this.activeCategory
                             })
                         });
+                        if (!res.ok) throw new Error("Search failed");
                         this.searchResults = await res.json();
                     } catch (e) {
-                        // Only alert if we really can't connect
-                        alert("Could not connect to the Backend Server.\n\nPlease ensuring the following:\n1. Open a terminal.\n2. Run: uvicorn dashboard.server:app --reload\n3. Keep that terminal open.");
+                        this.logs.push({ time: '[SYSTEM]', msg: 'Search failed. Backend offline?' });
                     } finally {
                         this.isSearching = false;
                     }
@@ -435,6 +457,7 @@
                 async init() {
                     this.initWebSocket();
                     await this.refreshFiles();
+                    this.initialLoading = false;
                 },
 
                 formatSize(bytes) {
@@ -447,20 +470,12 @@
 
                 async refreshFiles() {
                     try {
-                        let url = '/api/files';
-                        // Handle Cross-Port dev
-                        if (window.location.port !== '8000') {
-                            url = 'http://localhost:8000/api/files';
-                        }
-
-                        const res = await fetch(url);
+                        const res = await fetch(this.api('/api/files'));
+                        if (!res.ok) throw new Error("Fetch failed");
                         this.files = await res.json();
                     } catch (e) {
-                        console.error(e);
-                        // Show friendly error
-                        if (Object.keys(this.files).length === 0) {
-                            alert("Connection Error:\nCould not reach the Backend Server on http://localhost:8000.\n\nPlease run: uvicorn dashboard.server:app --reload");
-                        }
+                        // Silent fail but log
+                        console.error("Could not fetch files:", e);
                     }
                 },
 
@@ -468,12 +483,18 @@
                     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                     let host = window.location.host;
 
-                    // Cross-port dev support
-                    if (window.location.port !== '8000') {
+                    // Dev override
+                    if (window.location.port !== '8000' && window.location.hostname === 'localhost') {
                         host = 'localhost:8000';
                     }
 
                     const ws = new WebSocket(`${protocol}//${host}/ws/logs`);
+
+                    ws.onopen = () => {
+                        this.wsConnected = true;
+                        this.wsReconnectAttempts = 0;
+                        this.logs.push({ time: '[SYSTEM]', msg: 'Connected to server.' });
+                    };
 
                     ws.onmessage = (event) => {
                         const now = new Date();
@@ -487,9 +508,27 @@
 
                         if (event.data.includes("Process finished")) {
                             this.loading = false;
-                            this.refreshFiles(); // Refresh list after job
+                            this.refreshFiles();
                         }
                     };
+
+                    ws.onclose = () => {
+                        this.wsConnected = false;
+                        this.scheduleReconnect();
+                    };
+
+                    ws.onerror = () => {
+                        // Triggers onclose usually
+                    };
+                },
+
+                scheduleReconnect() {
+                    const delay = Math.min(1000 * (2 ** this.wsReconnectAttempts), 10000); // Max 10s
+                    console.log(`Reconnecting WS in ${delay}ms...`);
+                    setTimeout(() => {
+                        this.wsReconnectAttempts++;
+                        this.initWebSocket();
+                    }, delay);
                 },
 
                 async runJob(action, overrides = {}, label = '') {
@@ -498,10 +537,7 @@
                     this.lastCommand = label || `Running ${action}...`;
 
                     try {
-                        let url = '/run';
-                        if (window.location.port !== '8000') url = 'http://localhost:8000/run';
-
-                        await fetch(url, {
+                        await fetch(this.api('/run'), {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
@@ -511,16 +547,13 @@
                             })
                         });
                     } catch (e) {
-                        alert(e);
+                        this.logs.push({ time: '[ERROR]', msg: 'Failed to start job.' });
                         this.loading = false;
                     }
                 },
 
                 getFileUrl(path) {
-                    if (window.location.port !== '8000') {
-                        return 'http://localhost:8000' + path;
-                    }
-                    return path;
+                    return this.api(path);
                 },
 
                 async reindexDatabase() {
@@ -530,14 +563,11 @@
                     this.lastCommand = "Rebuilding Index...";
 
                     try {
-                        let url = '/api/reindex';
-                        if (window.location.port !== '8000') url = 'http://localhost:8000/api/reindex';
-
-                        const res = await fetch(url, { method: 'POST' });
+                        const res = await fetch(this.api('/api/reindex'), { method: 'POST' });
                         const data = await res.json();
                         this.logs.push({ time: `[SYSTEM]`, msg: data.message });
                     } catch (e) {
-                        alert(e);
+                        this.logs.push({ time: '[ERROR]', msg: 'Failed to trigger reindex.' });
                     } finally {
                         setTimeout(() => this.loading = false, 1000);
                     }
@@ -551,31 +581,17 @@
                 },
 
                 updateFile(filename) {
-                    // Heuristic to extract chapter or section from filename
-                    // Filename format: {prefix}_{chapter}_{desc}.pdf or similar
-                    // E.g. Export_Policy_01_Live_Animals.pdf -> 01, Policy: export
-
                     let policy = 'all';
                     if (filename.startsWith('Import_Policy')) policy = 'import';
                     if (filename.startsWith('Export_Policy')) policy = 'export';
-
-                    // Try to match chapter number
-                    // Matches _XX_ where XX is 1-3 digits
-                    // Adjusted regex to match the pattern: Policy_Name_XX_Description
                     const chapterMatch = filename.match(/_(\d{1,3})_/);
 
                     if (chapterMatch) {
                         const target = chapterMatch[1];
-                        console.log(`Updating Single: Chapter ${target}, Policy: ${policy}`);
-                        // Default to force=true for single updates as it is an explicit user action
                         this.promptSyncModal('single', { chapter: target, policy: policy }, `Update Ch ${target}`);
                         return;
                     }
-
-                    // Special Appendices handling
-                    // Pass filename without ext as 'section' filter
                     const name = filename.replace('.pdf', '');
-                    console.log(`Updating Single: Section ${name}, Policy: ${policy}`);
                     this.promptSyncModal('single', { section: name, policy: policy }, `Update ${name}`);
                 },
 
@@ -620,18 +636,9 @@
                 confirmSync(force) {
                     this.syncModal.open = false;
                     const finalArgs = { ...this.syncModal.args, force: force };
-                    // If action was passed in args (like for categories), use it, else default/passed
                     const act = this.syncModal.action;
 
-                    // For single updates, action is 'single' but runJob takes first arg as action
-                    // runJob signature: runJob(action, overrides = {}, label = '')
-                    // Actually runJob handles 'all', 'import', etc. 
-                    // But for single file, we used 'single' in previous code but server expects 'all'/'import'/'export' + args
-
                     if (act === 'single') {
-                        // When updating single file, we keep policy from args
-                        // server.py handles standard args. 
-                        // We usually pass 'all' or specific policy. 
                         this.runJob('all', finalArgs, this.syncModal.label);
                     } else {
                         this.runJob(act, finalArgs, this.syncModal.label);

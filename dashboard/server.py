@@ -1,17 +1,29 @@
-
 import asyncio
 import os
 import sys
-from typing import List
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from pydantic import BaseModel
-from pypdf import PdfReader
+from typing import List, Optional
+from contextlib import asynccontextmanager
 
-app = FastAPI()
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from .indexer import SearchIndexer
+
+# Initialize Indexer
+indexer = SearchIndexer()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    print("Background indexing started...")
+    asyncio.create_task(run_indexing())
+    yield
+    # Shutdown (if needed)
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -21,17 +33,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# Mount static files
-# We will create the static directory (which is just the current directory for simplicity in this structure)
-# or serving from a specific folder. 
-# Let's serve everything in 'dashboard' as static for simplicity, 
-# or just serve specific files if we want to be cleaner but 'dashboard' dir is fine.
-# Actually, let's assume index.html is in dashboard/
-app.mount("/static", StaticFiles(directory="dashboard"), name="static")
+# Securely mount only the static assets directory, not the whole dashboard folder
+# We ensure the directory exists to avoid errors if it's empty
+os.makedirs("dashboard/static", exist_ok=True)
+app.mount("/static", StaticFiles(directory="dashboard/static"), name="static")
 app.mount("/files", StaticFiles(directory="downloads"), name="files")
-
-from pypdf import PdfReader
 
 class RunConfig(BaseModel):
     action: str = 'all' # 'all', 'import', 'export', 'single'
@@ -41,28 +47,17 @@ class RunConfig(BaseModel):
     skip_extras: bool = False
     only_extras: bool = False
 
-# ... (existing code)
-
 class SearchConfig(BaseModel):
     query: str
     scope: str = "all"  # 'all' or specific folder/filename
 
-
-from .indexer import SearchIndexer
-
-# Initialize Indexer
-indexer = SearchIndexer()
-
-@app.on_event("startup")
-async def startup_event():
-    # Run indexing in background
-    asyncio.create_task(run_indexing())
-
 async def run_indexing():
-    print("Background indexing started...")
-    # Run in thread pool to not block async loop
-    await asyncio.to_thread(indexer.reindex_all, "downloads")
-    print("Background indexing finished.")
+    try:
+        # Run in thread pool to not block async loop
+        await asyncio.to_thread(indexer.reindex_all, "downloads")
+        print("Background indexing finished.")
+    except Exception as e:
+        print(f"Indexing failed: {e}")
 
 @app.post("/api/reindex")
 async def trigger_reindex():
@@ -73,12 +68,11 @@ async def trigger_reindex():
 async def search_content(config: SearchConfig):
     """
     Search for text content within PDFs using FTS index.
+    Runs in threadpool to avoid blocking event loop.
     """
     query = config.query
-    return indexer.search(query, config.scope)
-
-current_process = None
-connected_websockets: List[WebSocket] = []
+    # Offload blocking SQLite call to thread
+    return await asyncio.to_thread(indexer.search, query, config.scope)
 
 class ConnectionManager:
     def __init__(self):
@@ -96,27 +90,53 @@ class ConnectionManager:
         for connection in self.active_connections:
             try:
                 await connection.send_text(message)
-            except:
+            except Exception:
+                # Connection likely closed
                 pass
 
 manager = ConnectionManager()
 
+# Job Manager to handle process state
+class JobManager:
+    def __init__(self):
+        self.process: Optional[asyncio.subprocess.Process] = None
+        self.lock = asyncio.Lock()
+
+    async def start_job(self, cmd: List[str]):
+        async with self.lock:
+            if self.process and self.process.returncode is None:
+                raise Exception("A job is already running.")
+            
+            self.process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT, 
+                cwd=os.getcwd() 
+            )
+            return self.process
+
+    async def stop_job(self):
+        async with self.lock:
+            if self.process and self.process.returncode is None:
+                self.process.terminate()
+                return True
+            return False
+
+job_manager = JobManager()
+
 @app.get("/")
 async def get():
     # Serve index.html directly from root
-    with open("dashboard/index.html", "r") as f:
-        return HTMLResponse(content=f.read())
+    try:
+        with open("dashboard/index.html", "r") as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>Error: dashboard/index.html not found</h1>", status_code=404)
 
 @app.get("/api/files")
 async def list_files():
     """
     Returns a tree or flat list of files in the downloads folder.
-    Structure:
-    {
-        "Import_Policy": [{filename, path, size}, ...],
-        "Export_Policy": [...],
-        ...
-    }
     """
     base_path = "downloads"
     result = {}
@@ -124,22 +144,29 @@ async def list_files():
     if not os.path.exists(base_path):
         return {}
 
-    for folder in os.listdir(base_path):
-        folder_path = os.path.join(base_path, folder)
-        if os.path.isdir(folder_path):
-            files = []
-            for f in os.listdir(folder_path):
-                if f.endswith(".pdf"):
-                    full_path = os.path.join(folder_path, f)
-                    stat = os.stat(full_path)
-                    files.append({
-                        "name": f,
-                        "path": f"/files/{folder}/{f}",
-                        "size": stat.st_size,
-                        "modified": stat.st_mtime
-                    })
-            files.sort(key=lambda x: x['name'])
-            result[folder] = files
+    try:
+        for folder in os.listdir(base_path):
+            folder_path = os.path.join(base_path, folder)
+            if os.path.isdir(folder_path):
+                files = []
+                for f in os.listdir(folder_path):
+                    if f.endswith(".pdf"):
+                        full_path = os.path.join(folder_path, f)
+                        try:
+                            stat = os.stat(full_path)
+                            files.append({
+                                "name": f,
+                                "path": f"/files/{folder}/{f}",
+                                "size": stat.st_size,
+                                "modified": stat.st_mtime
+                            })
+                        except OSError:
+                            continue
+                files.sort(key=lambda x: x['name'])
+                result[folder] = files
+    except Exception as e:
+        print(f"Error listing files: {e}")
+        return {}
             
     return result
 
@@ -152,6 +179,8 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+    except Exception:
+        manager.disconnect(websocket)
 
 async def stream_output(process):
     # Helper to stream stdout/stderr to websockets
@@ -163,11 +192,6 @@ async def stream_output(process):
     
 @app.post("/run")
 async def run_script(config: RunConfig):
-    global current_process
-    
-    if current_process and current_process.returncode is None:
-        return JSONResponse(content={"status": "error", "message": "A job is already running."}, status_code=400)
-
     # Build command
     cmd = [sys.executable, "extract_dgft_pdfs.py"]
     
@@ -192,25 +216,16 @@ async def run_script(config: RunConfig):
     elif config.action == "export":
         cmd.extend(["--policy", "export"])
     else:
-        # For 'single' updates triggered by the UI, we just rely on --chapter or --section args
-        # But we still need to pass a policy type if we know it, or default to all.
-        # If the user clicks 'Update' on an Import policy file, we should technically know to use --policy import
-        # For now, 'all' is safe as --chapter filters it down anyway.
         cmd.extend(["--policy", "all"])
 
     await manager.broadcast(f"> Starting command: {' '.join(cmd)}")
 
     try:
-        # Start subprocess
-        current_process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT, 
-            cwd=os.getcwd() 
-        )
+        # Start subprocess via manager
+        process = await job_manager.start_job(cmd)
 
         # Start streaming in bg task
-        asyncio.create_task(monitor_process(current_process))
+        asyncio.create_task(monitor_process(process))
         
         return {"status": "success", "message": "Job started"}
     except Exception as e:
@@ -220,14 +235,11 @@ async def monitor_process(process):
     await stream_output(process)
     await process.wait()
     await manager.broadcast(f"> Process finished with exit code {process.returncode}")
-    global current_process
-    current_process = None
 
 @app.post("/stop")
 async def stop_script():
-    global current_process
-    if current_process and current_process.returncode is None:
-        current_process.terminate()
+    stopped = await job_manager.stop_job()
+    if stopped:
         await manager.broadcast("> Process terminated by user.")
         return {"status": "success", "message": "Process terminating..."}
     return {"status": "error", "message": "No process running"}
