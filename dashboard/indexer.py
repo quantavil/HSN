@@ -21,6 +21,10 @@ class SearchIndexer:
                         mtime UNINDEXED
                     )
                 """)
+                # Vocabulary table for fast term lookup (requires FTS5)
+                c.execute("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS pdf_terms USING fts5vocab(pdf_fts, row)
+                """)
                 # Standard table to track modification times for incremental updates
                 c.execute("""
                     CREATE TABLE IF NOT EXISTS file_meta (
@@ -91,6 +95,8 @@ class SearchIndexer:
         fuzzy_threshold: 0.0-1.0, minimum similarity score for matches (default 85%)
         """
         from difflib import SequenceMatcher
+        import rapidfuzz
+        from rapidfuzz import process, fuzz
         
         # Scope mapping
         scope_map = {
@@ -109,7 +115,42 @@ class SearchIndexer:
                 
                 # Create FTS5 query with wildcards for broader matching
                 search_terms = query.strip().split()
-                fts_query = " OR ".join([f'"{term}"*' for term in search_terms])
+                
+                # Enhanced Fuzzy Matching using Vocabulary
+                # 1. Fetch all terms from index to find corrections
+                c.execute("SELECT term FROM pdf_terms")
+                vocab_list = [r[0] for r in c.fetchall()]
+                
+                expanded_terms = []
+                effective_query_terms = set(search_terms)
+                
+                for term in search_terms:
+                    # Always include the original term
+                    term_alternatives = [f'"{term}"*']
+                    
+                    # Check if we should find a correction
+                    # (Simple heuristic: if term not in vocab, try to find closest match)
+                    # We can also always try to find similar words if we want to catch "metla" -> "metal"
+                    # even if "metla" exists (but usually we only correct if no exact match or always?)
+                    # User wants "metla" -> "metal", "metla" likely doesn't exist.
+                    
+                    # Find closest match in vocabulary
+                    # score_cutoff=80 allows for some deviation
+                    match = process.extractOne(term, vocab_list, scorer=fuzz.ratio, score_cutoff=70)
+                    if match:
+                        corrected_term, score, _ = match
+                        if corrected_term != term:
+                            term_alternatives.append(f'"{corrected_term}"*')
+                            effective_query_terms.add(corrected_term)
+                    
+                    expanded_terms.append(" OR ".join(term_alternatives))
+
+                # Combine all term groups with OR (matching original logic, though AND might be better for multi-word)
+                # Original was: " OR ".join([f'"{term}"*'...]) implies any word match is enough.
+                # Here we group corrections: (term OR correction) OR (term2 OR correction2)
+                # But to maintain original structure which flatly specificied ORs:
+                
+                fts_query = " OR ".join(expanded_terms)
                 
                 sql = """
                     SELECT path, filename, content
@@ -163,7 +204,7 @@ class SearchIndexer:
                             snippet = " ".join(original_words[start:end])
                             
                             # Highlight query terms
-                            for term in query.split():
+                            for term in effective_query_terms:
                                 import re
                                 snippet = re.sub(
                                     f'({re.escape(term)})',
@@ -174,7 +215,7 @@ class SearchIndexer:
                             best_snippet = "..." + snippet + "..."
                     
                     # Apply fuzzy threshold filter
-                    if best_score >= fuzzy_threshold or any(term.lower() in content_lower for term in query.split()):
+                    if best_score >= fuzzy_threshold or any(term.lower() in content_lower for term in effective_query_terms):
                         results.append({
                             "path": path,
                             "name": filename,

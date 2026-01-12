@@ -111,6 +111,15 @@
                     </button>
                 </div>
 
+                <!-- Fuzzy Toggle (Header) -->
+                <label
+                    class="flex items-center gap-2 cursor-pointer border-2 border-transparent hover:border-ink-900 p-1 rounded transition-all"
+                    title="Toggle Fuzzy Matching">
+                    <input type="checkbox" x-model="fuzzyEnabled"
+                        class="w-4 h-4 accent-accent-orange border-2 border-ink-900 rounded-sm">
+                    <span class="text-sm font-medium hidden md:inline">Fuzzy</span>
+                </label>
+
                 <div class="nb-search-wrapper relative">
                     <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-ink-700 pointer-events-none"
                         fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -281,17 +290,11 @@
 
             <div class="space-y-6">
                 <!-- Fuzzy Matching -->
+                <!-- Fuzzy Matching -->
                 <div class="space-y-3">
-                    <div class="flex items-center justify-between">
-                        <h4 class="font-semibold">Fuzzy Matching</h4>
-                        <label class="flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" x-model="fuzzyEnabled"
-                                class="w-4 h-4 accent-accent-orange border-2 border-ink-900 rounded-sm">
-                            <span class="text-sm font-medium">Enable</span>
-                        </label>
-                    </div>
+                    <h4 class="font-semibold">Fuzzy Sensitivity</h4>
 
-                    <div x-show="fuzzyEnabled" x-transition class="space-y-3">
+                    <div x-show="fuzzyEnabled" class="space-y-3">
                         <p class="text-sm text-ink-700">Set similarity threshold. Lower values = more loose matches.</p>
                         <div class="flex items-center gap-4">
                             <input type="range" x-model="fuzzyThreshold" min="50" max="100" step="5"
@@ -303,6 +306,9 @@
                             <span>Loose (50%)</span>
                             <span>Strict (100%)</span>
                         </div>
+                    </div>
+                    <div x-show="!fuzzyEnabled" class="text-sm text-ink-700 italic">
+                        Enable fuzzy matching in the top bar to adjust settings.
                     </div>
                 </div>
 
@@ -460,9 +466,25 @@
 
                     if (this.search && this.searchMode === 'filter') {
                         const q = this.search.toLowerCase();
-                        list = list.filter(f => f.name.toLowerCase().includes(q));
+                        if (this.fuzzyEnabled) {
+                            list = list.filter(f => this.fuzzyMatch(f.name.toLowerCase(), q));
+                        } else {
+                            list = list.filter(f => f.name.toLowerCase().includes(q));
+                        }
                     }
                     return list;
+                },
+
+                fuzzyMatch(text, query) {
+                    // Simple fuzzy match: characters of query must appear in text in order
+                    let i = 0, j = 0;
+                    while (i < text.length && j < query.length) {
+                        if (text[i] === query[j]) {
+                            j++;
+                        }
+                        i++;
+                    }
+                    return j === query.length;
                 },
 
                 async init() {
