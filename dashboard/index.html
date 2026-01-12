@@ -621,18 +621,21 @@
                 },
 
                 updateFile(filename) {
+                    // Determine policy from the active category's directory
+                    const cat = this.categories.find(c => c.id === this.activeCategory);
                     let policy = 'all';
-                    if (filename.startsWith('Import_')) policy = 'import';
-                    if (filename.startsWith('Export_')) policy = 'export';
+                    if (cat && cat.dir.startsWith('Import')) policy = 'import';
+                    if (cat && cat.dir.startsWith('Export')) policy = 'export';
+                    
                     const chapterMatch = filename.match(/_(\d{1,3})_/);
 
                     if (chapterMatch) {
                         const target = chapterMatch[1];
-                        this.promptSyncModal('single', { chapter: target, policy: policy }, `Update Ch ${target}`);
+                        this.promptSyncModal('single', { chapter: target, policy: policy, skip_extras: true }, `Update Ch ${target}`);
                         return;
                     }
                     const name = filename.replace('.pdf', '');
-                    this.promptSyncModal('single', { section: name, policy: policy }, `Update ${name}`);
+                    this.promptSyncModal('single', { section: name, policy: policy, skip_extras: true }, `Update ${name}`);
                 },
 
                 promptSync(categoryId) {
@@ -645,9 +648,11 @@
                     if (categoryId === 'all') {
                         args = { action: 'all' };
                     } else if (categoryId === 'import') {
-                        args = { action: 'import' };
+                        // Main policy only, skip appendices
+                        args = { action: 'import', skip_extras: true };
                     } else if (categoryId === 'export') {
-                        args = { action: 'export' };
+                        // Main policy only, skip appendices
+                        args = { action: 'export', skip_extras: true };
                     } else if (categoryId === 'import_extra') {
                         args = { action: 'import', only_extras: true };
                     } else if (categoryId === 'export_extra') {
@@ -679,7 +684,9 @@
                     const act = this.syncModal.action;
 
                     if (act === 'single') {
-                        this.runJob('all', finalArgs, this.syncModal.label);
+                        // Use the policy from args (set by updateFile) instead of forcing 'all'
+                        const policy = finalArgs.policy || 'all';
+                        this.runJob(policy, finalArgs, this.syncModal.label);
                     } else {
                         this.runJob(act, finalArgs, this.syncModal.label);
                     }

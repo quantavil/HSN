@@ -46,6 +46,7 @@ class RunConfig(BaseModel):
     force: bool = False
     skip_extras: bool = False
     only_extras: bool = False
+    policy: str = ''  # Explicit policy override: 'import', 'export', or '' (uses action)
 
 class SearchConfig(BaseModel):
     query: str
@@ -213,9 +214,11 @@ async def run_script(config: RunConfig):
         cmd.append("--only-extras")
 
     # Handle action (policy argument)
-    if config.action == "import":
+    # Prefer explicit policy if set, otherwise derive from action
+    effective_policy = config.policy if config.policy else config.action
+    if effective_policy == "import":
         cmd.extend(["--policy", "import"])
-    elif config.action == "export":
+    elif effective_policy == "export":
         cmd.extend(["--policy", "export"])
     else:
         cmd.extend(["--policy", "all"])
