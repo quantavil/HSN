@@ -14,9 +14,9 @@ class Config:
     DOWNLOAD_DIR: str = "downloads"
     MAX_FILENAME_LENGTH: int = 240
     TIMEOUTS = {
-        "page_load": 5000,
-        "row_render": 1500,
-        "post_click": 2000,
+        "page_load": 10000,
+        "row_render": 2000,
+        "post_click": 3000,
         "poll_interval": 200,
     }
     BLOB_POLL_ATTEMPTS: int = 20
@@ -126,12 +126,16 @@ async def process_card(page, context, card_title, output_folder, force_update=Fa
         # 1. Click 'View' button
         try:
             if container_selector:
-                view_button_selector = f"xpath={container_selector}//h5[contains(text(), '{card_title}')]/ancestor::a"
+                view_button_selector = f"xpath={container_selector}//h5[contains(normalize-space(text()), '{card_title}')]/ancestor::a"
             else:
-                view_button_selector = f"xpath=//h5[contains(text(), '{card_title}')]/ancestor::a"
+                view_button_selector = f"xpath=//h5[contains(normalize-space(text()), '{card_title}')]/ancestor::a"
             
             if not await page.query_selector(view_button_selector):
                 print(f"Card '{card_title}' not found on page. Skipping.")
+                # Debug dump
+                print("Available titles on page:")
+                titles = await page.evaluate("() => Array.from(document.querySelectorAll('h5')).map(el => el.innerText.trim())")
+                print(titles)
                 return
 
             await page.click(view_button_selector)
@@ -390,7 +394,7 @@ async def main():
         # Import Policy
         if args.policy in ['import', 'all']:
             # Using specific container for scoping
-            import_container = '//h4[contains(., "Schedule 1 - Import Policy")]/ancestor::div[contains(@class, "bg-dark-gray")][1]'
+            import_container = '//h4[contains(normalize-space(.), "Schedule 1 - Import Policy")]/ancestor::div[contains(@class, "bg-dark-gray")][1]'
             
             if not args.only_extras and should_process("ITC(HS) based Import Policy"):
                 await process_card(page, context, "ITC(HS) based Import Policy", "Import_Policy", args.force, args.chapter, link_selector="a.itchsimport", container_selector=import_container)
@@ -402,7 +406,7 @@ async def main():
         
         # Export Policy
         if args.policy in ['export', 'all']:
-            export_container = '//h4[contains(., "Schedule 2 - Export Policy")]/ancestor::div[contains(@class, "bg-dark-gray")][1]'
+            export_container = '//h4[contains(normalize-space(.), "Schedule 2 - Export Policy")]/ancestor::div[contains(@class, "bg-dark-gray")][1]'
 
             if not args.only_extras and should_process("ITC(HS) based Export Policy"):
                 await process_card(page, context, "ITC(HS) based Export Policy", "Export_Policy", args.force, args.chapter, link_selector="a.itchsexport", container_selector=export_container)

@@ -84,25 +84,34 @@ class SearchIndexer:
         finally:
             conn.close()
 
-    def search(self, query: str) -> List[Dict]:
+    def search(self, query: str, scope: str = "all") -> List[Dict]:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         
-        # Safe query formatting for FTS
-        # Enclose in quotes to handle special chars naturally or keep as is?
-        # FTS5 supports simple query syntax. 
-        # We can just pass the query directly, but might want to sanitize slightly
-        
+        # Scope mapping
+        scope_map = {
+            "import": "%/Import_Policy/%",
+            "export": "%/Export_Policy/%",
+            "import_extra": "%/Import_Policy_Extra/%",
+            "export_extra": "%/Export_Policy_Extra/%"
+        }
+
         try:
-            # Using snippet to get highlighted text
-            # snippet(table_name, column_index, start_tag, end_tag, ellipsis, max_tokens)
-            c.execute("""
+            sql = """
                 SELECT path, filename, snippet(pdf_fts, 1, '<b>', '</b>', '...', 20) 
                 FROM pdf_fts 
-                WHERE pdf_fts MATCH ? 
-                ORDER BY rank 
-                LIMIT 100
-            """, (query,))
+                WHERE pdf_fts MATCH ?
+            """
+            params = [query]
+
+            if scope in scope_map:
+                sql += " AND path LIKE ?"
+                params.append(scope_map[scope])
+            
+            sql += " ORDER BY rank"
+            # No LIMIT as requested by user
+
+            c.execute(sql, tuple(params))
             
             results = []
             for row in c.fetchall():

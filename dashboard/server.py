@@ -75,7 +75,7 @@ async def search_content(config: SearchConfig):
     Search for text content within PDFs using FTS index.
     """
     query = config.query
-    return indexer.search(query)
+    return indexer.search(query, config.scope)
 
 current_process = None
 connected_websockets: List[WebSocket] = []
