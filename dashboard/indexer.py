@@ -85,7 +85,13 @@ class SearchIndexer:
         except Exception as e:
             print(f"Failed to index {full_path}: {e}")
 
-    def search(self, query: str, scope: str = "all") -> List[Dict]:
+    def search(self, query: str, scope: str = "all", fuzzy_threshold: float = 0.85) -> List[Dict]:
+        """
+        Search for text content within PDFs.
+        fuzzy_threshold: 0.0-1.0, minimum similarity score for matches (default 85%)
+        """
+        from difflib import SequenceMatcher
+        
         # Scope mapping
         scope_map = {
             "import": "%/Import_Policy/%",
@@ -98,31 +104,91 @@ class SearchIndexer:
             with sqlite3.connect(self.db_path) as conn:
                 c = conn.cursor()
                 
+                # For fuzzy matching, we do a broader search first
+                # Then filter results by similarity score
+                
+                # Create FTS5 query with wildcards for broader matching
+                search_terms = query.strip().split()
+                fts_query = " OR ".join([f'"{term}"*' for term in search_terms])
+                
                 sql = """
-                    SELECT path, filename, snippet(pdf_fts, 1, '<b>', '</b>', '...', 20) 
+                    SELECT path, filename, content
                     FROM pdf_fts 
                     WHERE pdf_fts MATCH ?
                 """
-                params = [query]
+                params = [fts_query]
 
                 if scope in scope_map:
                     sql += " AND path LIKE ?"
                     params.append(scope_map[scope])
                 
-                sql += " ORDER BY rank LIMIT 50"
+                sql += " LIMIT 200"  # Get more results for fuzzy filtering
 
                 c.execute(sql, tuple(params))
                 
                 results = []
+                query_lower = query.lower()
+                
                 for row in c.fetchall():
-                    results.append({
-                        "path": row[0],
-                        "name": row[1],
-                        "matches": [{
-                            "snippet": row[2]
-                        }]
-                    })
-                return results
+                    path, filename, content = row
+                    content_lower = content.lower() if content else ""
+                    
+                    # Find best matching snippet
+                    best_score = 0
+                    best_snippet = ""
+                    
+                    # Search for query in content and score similarity
+                    words = content_lower.split()
+                    query_words = query_lower.split()
+                    
+                    # Slide a window over content to find best matching region
+                    window_size = max(20, len(query_words) * 3)
+                    
+                    for i in range(0, len(words) - len(query_words) + 1, 5):
+                        window = " ".join(words[i:i + window_size])
+                        
+                        # Calculate similarity
+                        score = SequenceMatcher(None, query_lower, window[:len(query_lower) * 2]).ratio()
+                        
+                        # Also check if query terms appear in window
+                        term_matches = sum(1 for term in query_words if term in window) / len(query_words)
+                        combined_score = (score + term_matches) / 2
+                        
+                        if combined_score > best_score:
+                            best_score = combined_score
+                            # Get the actual snippet from original content
+                            original_words = content.split()
+                            start = max(0, i - 5)
+                            end = min(len(original_words), i + window_size + 5)
+                            snippet = " ".join(original_words[start:end])
+                            
+                            # Highlight query terms
+                            for term in query.split():
+                                import re
+                                snippet = re.sub(
+                                    f'({re.escape(term)})',
+                                    r'<b>\1</b>',
+                                    snippet,
+                                    flags=re.IGNORECASE
+                                )
+                            best_snippet = "..." + snippet + "..."
+                    
+                    # Apply fuzzy threshold filter
+                    if best_score >= fuzzy_threshold or any(term.lower() in content_lower for term in query.split()):
+                        results.append({
+                            "path": path,
+                            "name": filename,
+                            "score": best_score,
+                            "matches": [{
+                                "snippet": best_snippet if best_snippet else f"Match found in {filename}"
+                            }]
+                        })
+                
+                # Sort by score descending
+                results.sort(key=lambda x: x.get("score", 0), reverse=True)
+                
+                return results[:50]  # Return top 50
+                
         except Exception as e:
             print(f"Search error: {e}")
             return []

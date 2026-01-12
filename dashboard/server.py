@@ -50,6 +50,7 @@ class RunConfig(BaseModel):
 class SearchConfig(BaseModel):
     query: str
     scope: str = "all"  # 'all' or specific folder/filename
+    fuzzy_threshold: float = 0.85  # 0.0-1.0, default 85% similarity
 
 async def run_indexing():
     try:
@@ -67,12 +68,13 @@ async def trigger_reindex():
 @app.post("/api/search")
 async def search_content(config: SearchConfig):
     """
-    Search for text content within PDFs using FTS index.
+    Search for text content within PDFs using FTS index with fuzzy matching.
     Runs in threadpool to avoid blocking event loop.
     """
     query = config.query
+    fuzzy_threshold = max(0.0, min(1.0, config.fuzzy_threshold))  # Clamp to 0-1
     # Offload blocking SQLite call to thread
-    return await asyncio.to_thread(indexer.search, query, config.scope)
+    return await asyncio.to_thread(indexer.search, query, config.scope, fuzzy_threshold)
 
 class ConnectionManager:
     def __init__(self):

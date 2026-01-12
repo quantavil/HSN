@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
-        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap"
         rel="stylesheet">
 
     <!-- Tailwind -->
@@ -22,10 +22,20 @@
         tailwind.config = {
             theme: {
                 extend: {
-                    fontFamily: { sans: ['Outfit', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
+                    fontFamily: {
+                        sans: ['Syne', 'sans-serif'],
+                        mono: ['DM Mono', 'monospace']
+                    },
                     colors: {
-                        brand: { 500: '#0ea5e9', 600: '#0284c7' },
-                        dark: { 800: '#1e1e2e', 900: '#11111b', 950: '#0d0d15' }
+                        cream: { 50: '#faf8f5', 100: '#f5f0e8', 200: '#ebe5d9' },
+                        ink: { 900: '#1a1a1a', 800: '#2a2a2a', 700: '#3a3a3a' },
+                        accent: {
+                            orange: '#ff5722',
+                            yellow: '#ffc107',
+                            blue: '#2196f3',
+                            green: '#4caf50',
+                            red: '#f44336'
+                        }
                     }
                 }
             }
@@ -33,98 +43,83 @@
     </script>
 </head>
 
-<body class="bg-dark-950 text-white h-screen overflow-hidden flex" x-data="fileManager()">
+<body class="neo-brutal bg-cream-100 text-ink-900 h-screen overflow-hidden flex" x-data="fileManager()">
 
     <!-- Sidebar -->
-    <aside class="w-64 bg-dark-900 border-r border-white/5 flex flex-col z-20">
-        <div class="p-6">
-            <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-brand-500 to-purple-400">
-                DGFT Viewer</h1>
+    <aside class="nb-sidebar w-72 flex flex-col z-20 shrink-0">
+        <div class="p-6 border-b-[3px] border-ink-900">
+            <h1 class="nb-sidebar-logo text-xl">
+                <span class="text-accent-orange">DGFT</span> Viewer
+            </h1>
         </div>
 
-        <nav class="flex-1 px-3 space-y-1 overflow-y-auto">
+        <nav class="flex-1 p-3 space-y-1 overflow-y-auto scrollbar-thin">
             <template x-for="cat in categories" :key="cat.id">
-                <div class="group flex items-center w-full px-3 py-2.5 rounded-lg text-sm font-medium border border-transparent transition-all"
-                    :class="activeCategory === cat.id ? 'bg-brand-500/10 text-brand-500 border-brand-500/50' : 'text-gray-400 border-transparent hover:bg-white/5 hover:text-white'">
-                    <button @click="activeCategory = cat.id" class="flex-1 text-left flex items-center justify-between">
-                        <span x-text="cat.name"></span>
-                        <span x-show="getCount(cat) > 0"
-                            class="text-xs opacity-50 bg-white/10 px-1.5 py-0.5 rounded ml-2"
-                            x-text="getCount(cat)"></span>
-                    </button>
-                    <!-- Sync Icon -->
-                    <button @click.stop="promptSync(cat.id)"
-                        class="opacity-0 group-hover:opacity-100 ml-2 p-1.5 rounded-md hover:bg-brand-500 hover:text-white text-gray-500 transition-all"
-                        title="Sync Category">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
-                            </path>
-                        </svg>
-                    </button>
+                <div class="group">
+                    <div class="nb-nav-item" :class="activeCategory === cat.id ? 'active' : ''"
+                        @click="activeCategory = cat.id; if(searchMode === 'content') setSearchMode('filter')">
+                        <span class="flex-1 truncate" x-text="cat.name"></span>
+                        <span x-show="getCount(cat) > 0" class="nb-badge ml-2" x-text="getCount(cat)"></span>
+                        <!-- Sync Icon -->
+                        <button @click.stop="promptSync(cat.id)"
+                            class="opacity-0 group-hover:opacity-100 ml-2 p-1.5 nb-btn-sm hover:bg-accent-yellow transition-all"
+                            title="Sync Category">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
+                                </path>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
             </template>
         </nav>
 
-        <div class="p-4 border-t border-white/5">
-            <div class="glass-panel p-4 rounded-xl space-y-3">
-                <button @click="showModal = true"
-                    class="w-full py-2 px-3 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 text-sm font-medium text-gray-300 transition-all flex items-center justify-center gap-2">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z">
-                        </path>
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                    </svg>
-                    Settings
-                </button>
-
-            </div>
+        <div class="p-4 border-t-[3px] border-ink-900">
+            <button @click="showModal = true"
+                class="nb-btn w-full flex items-center justify-center gap-2 pb-2.5 pt-1.5">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z">
+                    </path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                </svg>
+                Settings
+            </button>
         </div>
     </aside>
 
     <!-- Main Content -->
-    <main class="flex-1 flex flex-col min-w-0 bg-dark-950 relative">
+    <main class="flex-1 flex flex-col min-w-0 bg-cream-100 relative">
         <!-- Header -->
-        <header
-            class="px-8 py-5 flex items-center justify-between border-b border-white/5 bg-dark-950/50 backdrop-blur z-10 sticky top-0">
-            <h2 class="text-2xl font-semibold text-white"
+        <header class="nb-header flex items-center justify-between sticky top-0 z-10">
+            <h2 class="text-2xl font-bold"
                 x-text="searchMode === 'content' ? 'Search Results' : categories.find(c => c.id === activeCategory)?.name">
             </h2>
 
             <div class="flex items-center gap-4">
                 <!-- Search Mode Toggle -->
-                <div class="flex bg-dark-900 rounded-lg p-1 border border-white/10">
-                    <button @click="setSearchMode('filter')"
-                        :class="searchMode === 'filter' ? 'bg-brand-600 text-white shadow' : 'text-gray-400 hover:text-white'"
-                        class="px-3 py-1.5 rounded-md text-xs font-medium transition-all">
+                <div class="nb-toggle-group">
+                    <button @click="setSearchMode('filter')" :class="searchMode === 'filter' ? 'active' : ''"
+                        class="nb-toggle-btn">
                         Filter Name
                     </button>
-                    <button @click="setSearchMode('content')"
-                        :class="searchMode === 'content' ? 'bg-brand-600 text-white shadow' : 'text-gray-400 hover:text-white'"
-                        class="px-3 py-1.5 rounded-md text-xs font-medium transition-all">
+                    <button @click="setSearchMode('content')" :class="searchMode === 'content' ? 'active' : ''"
+                        class="nb-toggle-btn">
                         Search Content
                     </button>
                 </div>
 
-                <div class="relative w-80">
-                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none"
-                        stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                <div class="nb-search-wrapper relative">
+                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-ink-700 pointer-events-none"
+                        fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
                             d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
                     </svg>
                     <input x-model="search" @keydown.enter="performSearch()" type="text"
-                        :placeholder="searchMode === 'content' ? 'Type & Press Enter to search text...' : 'Filter files...'"
-                        class="w-full bg-dark-900 border border-white/10 rounded-full pl-10 pr-4 py-2 text-sm focus:outline-none focus:border-brand-500 transition-colors">
-
-                    <button x-show="searchMode === 'content' && search" @click="performSearch()"
-                        class="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full bg-white/10 hover:bg-white/20 text-gray-300">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
-                        </svg>
-                    </button>
+                        :placeholder="searchMode === 'content' ? 'Press Enter to search...' : 'Filter files...'"
+                        class="nb-input w-72 pl-10 pr-4">
                 </div>
             </div>
         </header>
@@ -137,46 +132,44 @@
                 class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
 
                 <template x-for="file in filteredFiles" :key="file.path">
-                    <div
-                        class="group relative bg-dark-900 border border-white/5 rounded-xl p-4 hover:border-brand-500/30 hover:bg-dark-800 transition-all duration-300 flex flex-col">
+                    <div class="nb-file-card group flex flex-col">
                         <div class="flex items-start justify-between mb-4">
-                            <div
-                                class="w-10 h-10 rounded-lg bg-brand-500/10 flex items-center justify-center text-brand-500">
+                            <div class="nb-file-icon">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
                                         d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z">
                                     </path>
                                 </svg>
                             </div>
                             <button @click="updateFile(file.name)" title="Re-download"
-                                class="opacity-0 group-hover:opacity-100 p-2 rounded-lg bg-white/5 hover:bg-white/10 hover:text-brand-400 text-gray-400 transition-all">
+                                class="opacity-0 group-hover:opacity-100 p-2 nb-btn-sm hover:bg-accent-blue hover:text-white transition-all">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
                                         d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
                                     </path>
                                 </svg>
                             </button>
                         </div>
                         <div class="flex-1 min-w-0 mb-4">
-                            <h3 class="text-sm font-medium text-gray-200 truncate" :title="file.name"
-                                x-text="file.name"></h3>
-                            <p class="text-xs text-gray-500 mt-1" x-text="formatSize(file.size)"></p>
+                            <h3 class="nb-file-name line-clamp-2" :title="file.name" x-text="file.name"></h3>
+                            <p class="nb-file-size mt-1" x-text="formatSize(file.size)"></p>
                         </div>
                         <a :href="getFileUrl(file.path)" target="_blank"
-                            class="w-full py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-center text-gray-300 transition-colors">Open
-                            PDF</a>
+                            class="nb-btn nb-btn-primary w-full text-center text-sm">
+                            Open PDF
+                        </a>
                     </div>
                 </template>
             </div>
 
-            <!-- Loading State for Initial Load or Search -->
+            <!-- Loading State for Initial Load -->
             <div x-show="initialLoading"
                 class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
                 <template x-for="i in 5">
-                    <div class="bg-dark-900 border border-white/5 rounded-xl p-4 animate-pulse h-40">
-                        <div class="w-10 h-10 bg-white/10 rounded-lg mb-4"></div>
-                        <div class="h-4 bg-white/10 rounded w-3/4 mb-2"></div>
-                        <div class="h-3 bg-white/10 rounded w-1/2"></div>
+                    <div class="nb-skeleton h-44 p-4">
+                        <div class="w-10 h-10 bg-cream-200 border-2 border-ink-900 mb-4"></div>
+                        <div class="h-4 bg-cream-200 border border-ink-900 w-3/4 mb-2"></div>
+                        <div class="h-3 bg-cream-200 border border-ink-900 w-1/2"></div>
                     </div>
                 </template>
             </div>
@@ -184,82 +177,73 @@
             <!-- Search Results List -->
             <div x-show="searchMode === 'content'" class="space-y-4">
                 <template x-for="result in searchResults" :key="result.path">
-                    <div
-                        class="bg-dark-900 border border-white/5 rounded-xl p-6 hover:border-brand-500/30 transition-all">
-                        <div class="flex items-start justify-between">
-                            <div class="flex items-center gap-3">
-                                <div
-                                    class="w-8 h-8 rounded bg-brand-500/10 flex items-center justify-center text-brand-500">
+                    <div class="nb-search-result">
+                        <div class="flex items-center justify-between gap-4">
+                            <div class="flex items-center gap-3 min-w-0">
+                                <div class="nb-file-icon shrink-0">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
                                             d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
                                         </path>
                                     </svg>
                                 </div>
-                                <div>
-                                    <h3 class="text-lg font-medium text-gray-200" x-text="result.name"></h3>
-                                    <a :href="getFileUrl(result.path)" target="_blank"
-                                        class="text-xs text-brand-400 hover:text-brand-300 hover:underline">Open
-                                        File</a>
-                                </div>
+                                <h3 class="text-lg font-semibold truncate" x-text="result.name"></h3>
                             </div>
+                            <a :href="getFileUrl(result.path)" target="_blank"
+                                class="nb-btn nb-btn-primary shrink-0 text-sm">
+                                Open PDF
+                            </a>
                         </div>
 
-                        <div class="mt-4 space-y-2 pl-11">
+                        <div class="mt-4 space-y-2 pl-12">
                             <template x-for="match in result.matches">
-                                <div class="text-sm text-gray-400 bg-white/5 p-3 rounded-lg">
+                                <div class="nb-search-match">
                                     <!-- Safe because snippet uses FTS5 escaping, only <b> tags are injected -->
-                                    <p class="font-mono text-xs opacity-80" x-html="match.snippet"></p>
+                                    <p x-html="match.snippet"></p>
                                 </div>
                             </template>
                         </div>
                     </div>
                 </template>
-                <div x-show="searchResults.length === 0 && !isSearching" class="text-center text-gray-500 py-12">
-                    Enter a term above to search through PDF contents.
+                <div x-show="searchResults.length === 0 && !isSearching" class="nb-empty-state">
+                    <p class="text-lg font-medium">Enter a term above to search through PDF contents.</p>
                 </div>
-                <div x-show="isSearching" class="text-center text-brand-500 py-12 flex flex-col items-center">
-                    <svg class="w-6 h-6 animate-spin mb-2" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                        </circle>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z">
-                        </path>
-                    </svg>
-                    Searching contents...
+                <div x-show="isSearching" class="nb-empty-state flex flex-col items-center">
+                    <div class="nb-spinner mb-3"></div>
+                    <p class="font-medium">Searching contents...</p>
                 </div>
             </div>
 
             <!-- Empty State for Filter -->
             <div x-show="searchMode === 'filter' && filteredFiles.length === 0 && !initialLoading"
-                class="h-64 flex flex-col items-center justify-center text-gray-500">
-                <p>No files found.</p>
-                <div x-show="loading" class="mt-2 text-sm text-brand-500">Syncing...</div>
+                class="nb-empty-state">
+                <p class="text-lg font-medium">No files found.</p>
+                <div x-show="loading" class="mt-2 text-accent-orange font-medium">Syncing...</div>
             </div>
         </div>
     </main>
 
     <!-- Console Drawer -->
-    <div class="fixed bottom-0 left-64 right-0 z-30 transition-transform duration-300 transform"
+    <div class="fixed bottom-0 left-72 right-0 z-30 transition-transform duration-300 transform"
         :class="consoleOpen ? 'translate-y-0' : 'translate-y-full'" @click.outside="consoleOpen = false">
 
         <!-- Tab Helper -->
         <button @click="consoleOpen = !consoleOpen"
-            class="absolute -top-10 right-8 px-4 py-2 rounded-t-lg bg-dark-900 border-t border-x border-white/10 text-xs font-mono text-gray-400 hover:text-white flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full"
-                :class="wsConnected ? (loading ? 'bg-green-500 animate-pulse' : 'bg-green-500') : 'bg-red-500'"></span>
-            Console <span x-show="!wsConnected">(Disconnected)</span>
+            class="nb-console-tab absolute -top-10 right-8 flex items-center gap-2">
+            <span class="nb-status-dot"
+                :class="wsConnected ? (loading ? 'loading' : 'connected') : 'disconnected'"></span>
+            Console <span x-show="!wsConnected" class="text-accent-red">(Disconnected)</span>
         </button>
 
-        <div class="bg-dark-900 border-t border-white/10 h-64 flex flex-col shadow-[0_-20px_40px_rgba(0,0,0,0.5)]">
-            <div class="flex items-center justify-between px-4 py-2 bg-dark-950 border-b border-white/5">
-                <span class="text-xs font-mono text-gray-400">root@dgft-extractor:~ <span
-                        x-text="lastCommand"></span></span>
+        <div class="nb-console h-64 flex flex-col">
+            <div class="nb-console-header">
+                <span>root@dgft-extractor:~ <span x-text="lastCommand"></span></span>
                 <div class="flex items-center gap-3">
-                    <button @click="logs = []" class="text-xs text-gray-500 hover:text-white">Clear</button>
+                    <button @click="logs = []" class="hover:text-accent-yellow transition-colors">Clear</button>
                     <!-- Close Button -->
-                    <button @click="consoleOpen = false" class="text-gray-500 hover:text-white">
+                    <button @click="consoleOpen = false" class="hover:text-accent-red transition-colors">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
                                 d="M6 18L18 6M6 6l12 12"></path>
                         </svg>
                     </button>
@@ -268,58 +252,85 @@
             <div id="terminal" class="flex-1 p-4 font-mono text-xs overflow-y-auto scrollbar-thin">
                 <template x-for="log in logs">
                     <div class="mb-0.5 break-words">
-                        <span class="text-gray-600 mr-2" x-text="log.time"></span>
+                        <span class="text-gray-500 mr-2" x-text="log.time"></span>
                         <span :class="{
-                            'text-brand-400': log.msg.startsWith('>'),
-                            'text-green-400': log.msg.includes('Saved'),
-                            'text-yellow-400': log.msg.includes('Processing'),
-                            'text-red-400': log.msg.includes('Error') || log.msg.includes('failed'),
+                            'text-accent-blue': log.msg.startsWith('>'),
+                            'text-accent-green': log.msg.includes('Saved'),
+                            'text-accent-yellow': log.msg.includes('Processing'),
+                            'text-accent-red': log.msg.includes('Error') || log.msg.includes('failed'),
                             'text-gray-300': !log.msg.startsWith('>')
                         }" x-text="log.msg"></span>
                     </div>
                 </template>
-                <div x-show="!wsConnected" class="text-red-500 mt-2 italic">
+                <div x-show="!wsConnected" class="text-accent-red mt-2 italic">
                     Connection lost. Reconnecting...
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Modals -->
+    <!-- Settings Modal -->
     <div x-show="showModal" style="display: none;"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+        class="fixed inset-0 z-50 flex items-center justify-center nb-modal-overlay"
         x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0"
         x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150"
         x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0">
 
-        <div class="bg-dark-900 border border-white/10 rounded-xl p-6 w-full max-w-md shadow-2xl transform transition-all"
-            @click.away="showModal = false">
-            <h3 class="text-lg font-semibold mb-4">System Settings</h3>
+        <div class="nb-modal animate-pop" @click.away="showModal = false">
+            <h3 class="nb-modal-title">System Settings</h3>
 
             <div class="space-y-6">
+                <!-- Fuzzy Matching -->
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h4 class="font-semibold">Fuzzy Matching</h4>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" x-model="fuzzyEnabled"
+                                class="w-4 h-4 accent-accent-orange border-2 border-ink-900 rounded-sm">
+                            <span class="text-sm font-medium">Enable</span>
+                        </label>
+                    </div>
+
+                    <div x-show="fuzzyEnabled" x-transition class="space-y-3">
+                        <p class="text-sm text-ink-700">Set similarity threshold. Lower values = more loose matches.</p>
+                        <div class="flex items-center gap-4">
+                            <input type="range" x-model="fuzzyThreshold" min="50" max="100" step="5"
+                                class="flex-1 h-2 bg-cream-200 border-2 border-ink-900 appearance-none cursor-pointer accent-accent-orange">
+                            <span class="nb-badge nb-badge-accent font-mono text-sm min-w-[3rem] text-center"
+                                x-text="fuzzyThreshold + '%'"></span>
+                        </div>
+                        <div class="flex justify-between text-xs text-ink-700">
+                            <span>Loose (50%)</span>
+                            <span>Strict (100%)</span>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Search Index -->
-                <div class="space-y-2">
-                    <h4 class="text-sm font-medium text-gray-300">Search Index</h4>
-                    <p class="text-xs text-gray-500">Rebuild the search index if results are missing or incorrect.</p>
+                <div class="space-y-3 pt-4 border-t-2 border-ink-900">
+                    <h4 class="font-semibold">Search Index</h4>
+                    <p class="text-sm text-ink-700">Rebuild the search index if results are missing or incorrect.</p>
                     <button @click="reindexDatabase()" :disabled="loading"
-                        class="w-full py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 text-sm font-medium text-gray-300 transition-all flex items-center justify-center gap-2">
+                        class="nb-btn nb-btn-secondary w-full flex items-center justify-center gap-2"
+                        :class="loading ? 'opacity-50 cursor-not-allowed' : ''">
                         <svg x-show="!loading" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
                                 d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
                             </path>
                         </svg>
+                        <div x-show="loading" class="nb-spinner w-4 h-4"></div>
                         Rebuild Index
                     </button>
                 </div>
 
                 <!-- Console -->
-                <div class="space-y-2 pt-4 border-t border-white/5">
-                    <h4 class="text-sm font-medium text-gray-300">Console</h4>
-                    <p class="text-xs text-gray-500">Clear local terminal logs.</p>
+                <div class="space-y-3 pt-4 border-t-2 border-ink-900">
+                    <h4 class="font-semibold">Console</h4>
+                    <p class="text-sm text-ink-700">Clear local terminal logs.</p>
                     <button @click="logs = []; showModal = false"
-                        class="w-full py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 text-sm font-medium text-gray-300 transition-all flex items-center justify-center gap-2">
+                        class="nb-btn w-full flex items-center justify-center gap-2">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
                                 d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
                             </path>
                         </svg>
@@ -329,34 +340,31 @@
             </div>
 
             <button @click="showModal = false"
-                class="mt-6 w-full text-xs text-gray-500 hover:text-gray-300">Close</button>
+                class="mt-6 w-full text-sm text-ink-700 hover:text-ink-900 font-medium">Close</button>
         </div>
     </div>
 
     <!-- Sync Confirmation Modal -->
     <div x-show="syncModal.open" style="display: none;"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+        class="fixed inset-0 z-50 flex items-center justify-center nb-modal-overlay"
         x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0"
         x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150"
         x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0">
 
-        <div class="bg-dark-900 border border-white/10 rounded-xl p-6 w-full max-w-sm shadow-2xl transform transition-all"
-            @click.away="syncModal.open = false">
-            <h3 class="text-lg font-semibold mb-2" x-text="syncModal.label || 'Confirm Sync'"></h3>
-            <p class="text-gray-400 text-sm mb-6">Choose how you want to update these files.</p>
+        <div class="nb-modal animate-pop" @click.away="syncModal.open = false">
+            <h3 class="nb-modal-title" x-text="syncModal.label || 'Confirm Sync'"></h3>
+            <p class="text-ink-700 text-sm mb-6">Choose how you want to update these files.</p>
 
             <div class="space-y-3">
-                <button @click="confirmSync(false)"
-                    class="w-full py-2.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 text-sm font-medium text-white transition-all">
+                <button @click="confirmSync(false)" class="nb-btn w-full">
                     Normal Sync (Only New/Changed)
                 </button>
-                <button @click="confirmSync(true)"
-                    class="w-full py-2.5 rounded-lg bg-white/5 hover:bg-brand-600 border border-brand-500/30 text-sm font-medium text-white transition-all">
+                <button @click="confirmSync(true)" class="nb-btn nb-btn-primary w-full">
                     Force Re-download (Overwrite All)
                 </button>
             </div>
             <button @click="syncModal.open = false"
-                class="mt-4 w-full text-xs text-gray-500 hover:text-gray-300">Cancel</button>
+                class="mt-4 w-full text-sm text-ink-700 hover:text-ink-900 font-medium">Cancel</button>
 
         </div>
     </div>
@@ -379,6 +387,8 @@
                 searchMode: 'filter', // 'filter' or 'content'
                 searchResults: [],
                 isSearching: false,
+                fuzzyThreshold: 85, // Default 85% similarity
+                fuzzyEnabled: true,
 
                 categories: [
                     { id: 'all', name: 'All Files', dir: 'all' },
@@ -424,7 +434,8 @@
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                                 query: this.search,
-                                scope: this.activeCategory
+                                scope: this.activeCategory,
+                                fuzzy_threshold: this.fuzzyEnabled ? (this.fuzzyThreshold / 100) : 1.0
                             })
                         });
                         if (!res.ok) throw new Error("Search failed");
