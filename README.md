@@ -70,6 +70,20 @@ docker run -p 8000:8000 -v $(pwd)/downloads:/app/downloads dgft-extractor
 
 (Replace `docker` with `podman` if using Podman)
 
+### 3. Stop and Remove
+
+To stop the container and remove the image:
+
+```bash
+# Stop the running container (find the ID/name first with `docker ps`)
+docker stop <container_id>
+
+# Remove the container
+docker rm <container_id>
+
+# Remove the image
+docker rmi dgft-extractor
+```
 
 ## Usage
 
@@ -94,6 +108,11 @@ uvicorn dashboard.server:app --reload
 ```
 
 Open your browser to `http://localhost:8000`.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
 
 ## Architecture
 
